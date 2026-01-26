@@ -1,0 +1,54 @@
+name = "Standard Template"
+start_time = "04:30"
+description = "Baseline weekday schedule balancing worship, work, and rest."
+
+[[events]]
+type = "relative"
+name = "Wake & Center"
+duration = "0.45"
+flexible = false
+
+[[events.tasks]]
+label = "Morning journaling"
+note = "Set daily intentions and duas"
+
+[[events]]
+type = "relative"
+name = "Deep Work Block 1"
+duration = "2.00"
+flexible = true
+
+[[events.tasks]]
+label = "Study tafsir"
+note = "30 minute warm-up reading"
+
+[[events]]
+type = "fixed"
+name = "Breakfast"
+duration = "0.30"
+flexible = false
+time = "07:45"
+
+[[events]]
+type = "relative"
+name = "Focused Work"
+duration = "3.00"
+flexible = true
+
+[[events]]
+type = "relative"
+name = "Rest & Family"
+duration = "1.30"
+flexible = true
+
+[[events]]
+type = "relative"
+name = "Study & Reading"
+duration = "2.00"
+flexible = true
+
+[[events]]
+type = "relative"
+name = "Wind Down"
+duration = "1.00"
+flexible = false

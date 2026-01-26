@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "munazzim"
+version = "0.1.0"
+description = "Terminal-based daily planner that respects prayer times"
+readme = "README.md"
+authors = [
+  { name = "Munazzim Contributors" }
+]
+license = { text = "MIT" }
+requires-python = ">=3.11"
+dependencies = [
+  "textual>=6.6.0",
+  "rich>=14.1.0",
+  "httpx>=0.26,<0.29",
+  "islam>=2.2,<3",
+  # Optional Google Tasks support - installed when user wants syncing
+  "google-api-python-client>=2.75.0",
+  "google-auth>=2.21.0",
+  "google-auth-oauthlib>=1.1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=9.0.1,<9.0"
+]
+
+[project.scripts]
+munazzim = "munazzim.__main__:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

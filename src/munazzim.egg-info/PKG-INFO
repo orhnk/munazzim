@@ -1,0 +1,281 @@
+Metadata-Version: 2.4
+Name: munazzim
+Version: 0.1.0
+Summary: Terminal-based daily planner that respects prayer times
+Author: Munazzim Contributors
+License: MIT
+Requires-Python: >=3.11
+Description-Content-Type: text/markdown
+Requires-Dist: textual>=6.6.0
+Requires-Dist: rich>=14.1.0
+Requires-Dist: httpx<0.29,>=0.26
+Requires-Dist: islam<3,>=2.2
+Provides-Extra: dev
+Requires-Dist: pytest<9.0,>=9.0.1; extra == "dev"
+
+# Munazzim - Muslim Daily Planner
+
+## Project Overview
+
+Munazzim is a **terminal-based daily planning application** specifically designed for Muslims that automatically schedules tasks around prayer times. The core philosophy is to help users plan their 24-hour day while respecting Islamic prayer schedules and providing flexibility for real-life adjustments.
+
+## Core Concept
+
+### The Problem
+- Muslims need to plan their day around 5 daily prayers that occur at changing times
+- Traditional planners don't automatically adjust for prayer times
+- Planning needs to be flexible for surprises while maintaining structure
+
+### The Solution
+- **Automatic Prayer Scheduling**: Program inserts prayer times automatically
+- **Relative Time Planning**: Tasks are scheduled relative to each other, not fixed times
+- **Template System**: Pre-defined daily templates for different types of days
+- **Real-time Adjustment**: "Shrinker" system handles unexpected events
+
+## Key Technical Components
+
+### 1. Time Management System
+```python
+# Core time concepts:
+- Absolute times (HH:MM) for fixed events
+- Relative durations (.30 for 30 minutes)
+- Prayer times (calculated via API)
+- Duration parsing (1.30 = 1 hour 30 mins)
+```
+
+### 2. Prayer Integration
+- Fetches prayer times based on geolocation
+- Automatically inserts prayers into the schedule
+- Handles prayer duration configuration
+- Respects "Thabbat" (fixed) events
+
+### 3. Template Engine
+save your daily plans as templates to use them in future days. E.g one can have various templates for holidays which he reads a lot books, studies a lot etc.
+
+### 4. Plan Generation Algorithm
+1. Start from wake-up time
+2. Add relative events sequentially
+3. Insert prayers when prayer time occurs
+4. Handle fixed events at their specified times
+5. Validate total time equals 24 hours
+
+## User Workflow
+
+### Daily Planning
+1. **Select Template**: Choose from pre-defined daily templates
+2. **Generate Plan**: Program creates day schedule with prayers
+3. **Edit**: Modify using preferred text editor
+4. **Execute**: Follow plan, prayers auto-inserted
+5. **Adjust**: Use shrinker for surprises
+
+### Template Management
+- Create templates for different day types (Work, Study, Weekend)
+- Templates are plain text files
+- Easy editing with any text editor
+- Weekly template assignment
+
+## Technical Architecture
+
+### Data Structures Needed
+- **Event**: Base unit with duration, type, name
+- **Task**: Subtask attached to events
+- **Template**: Collection of events for a day type
+- **DayPlan**: Generated schedule for specific date
+- **PrayerTimes**: Calculated prayer schedule
+
+### External Integrations
+- **Prayer Time APIs**: Aladhan, Diyanet, Pray.Zone
+- **Google Calendar**: Sync events and tasks
+- **Google Tasks**: Manage subtasks
+- **Geolocation**: Auto-detect location for prayer times
+
+## Unique Features
+
+### 1. Shrinker System
+```python
+# Handles unexpected events:
+- Start timer for surprise task
+- Stop when done
+- Program redistributes time from flexible tasks
+- Fixed events remain unchanged
+```
+
+### 2. Smart Task Attachment
+```python
+# Subtasks with recurrence:
+"1.30 Read (Science)"
+"- [16] Read Empire of Cotton"  # Appears for 16 occurrences
+```
+
+### 3. Relative Time Planning
+- No fixed clock times (except Thabbat events)
+- Events flow sequentially
+- Automatic adjustment when prayers inserted
+
+## Development Approach
+
+### Phase 1: MVP (Weeks 1-4)
+**Core functionality only:**
+- Basic TUI with template selection
+- Simple time calculation
+- Manual prayer time input
+- Basic plan generation
+
+### Phase 2: Prayer Integration (Weeks 5-8)
+**Smart scheduling:**
+- Prayer time APIs
+- Automatic prayer insertion
+- Conflict resolution
+- Duration configuration
+
+### Phase 3: Advanced Features (Weeks 9-12)
+**Polish and power features:**
+- Shrinker system
+- Google integration
+- Subtask management
+- Week planning view
+
+## Success Criteria
+
+### Functional Requirements
+- Plan generation under 2 seconds
+- Prayer time accuracy within 1 minute
+- Handle all 5 daily prayers correctly
+- Support for flexible and fixed events
+- Template switching in under 1 second
+
+### User Experience
+- Intuitive TUI navigation
+- Clear time visualization
+- Easy template editing
+- Meaningful error messages
+- Quick plan adjustments
+
+## Technical Constraints
+
+### Performance
+- Memory: < 100MB typical usage
+- Startup: < 3 seconds
+- Plan generation: < 2 seconds
+- Prayer calculation: < 1 second
+
+### Compatibility
+- Python 3.8+
+- Cross-platform (Linux, macOS, Windows)
+- Works in standard terminals
+- Supports common editors (vim, VSCode, etc.)
+
+## Risk Mitigation
+
+### Technical Risks
+- **Prayer API reliability**: Cache times with fallback
+- **Time calculation complexity**: Thorough testing with edge cases
+- **Google API quotas**: Implement efficient sync strategies
+- **TUI complexity**: Progressive enhancement approach
+
+### User Adoption
+- **Learning curve**: Comprehensive documentation
+- **Template creation**: Provide rich example templates
+- **Error recovery**: Robust backup and validation
+- **Mobile access**: Google Calendar sync for on-the-go access
+
+This project combines practical daily planning with religious observance in a technically sophisticated but user-friendly package. The terminal-based approach ensures speed and efficiency while the template system provides the flexibility needed for varied daily routines.
+
+## Phase 1 + 2 Status
+
+The repository now includes the original MVP foundation plus the Phase 2 prayer-aware enhancements:
+
+- **Nix-first toolchain** – `flake.nix` builds the Python package and exposes the TUI via `nix run`.
+- **Config system** – TOML-driven user settings with automatic bootstrapping under `~/.config/munazzim/config.toml`.
+- **Domain models** – Events, tasks, templates, and generated day plans captured via typed dataclasses.
+- **Template engine** – Loads bundled templates (and optional user overrides) from TOML, with duration parsing and validation for fixed vs. relative/Thabbat events.
+- **Time engine** – Duration parsing plus a scheduler that splits events around the five daily prayers and respects fixed-time blocks.
+- **Prayer services** – Geolocation-aware fetchers for Aladhan and the Vakit (Diyanet) API with on-disk caching and configurable calculation methods.
+- **Validation** – Wake-time and Thabbat overlap checks with friendly error feedback inside the TUI status line.
+- **Textual TUI** – Header, status line (template/provider/location/to-plan), plan table, and keybindings for refreshing or switching templates.
+
+## Repository Layout
+
+```
+├── flake.nix                # Nix entrypoint (run/build/dev shell)
+├── pyproject.toml           # Python metadata + dependencies (Textual, Rich)
+├── src/munazzim/
+│   ├── config.py            # Config manager & defaults
+│   ├── models.py            # Core dataclasses
+│   ├── scheduler.py         # Prayer-aware plan builder
+│   ├── services/            # Geolocation + prayer-time clients with caching
+│   ├── templates.py         # Template repository & parser
+│   ├── timeutils.py         # HH:MM & duration helpers
+│   ├── tui/app.py           # Textual UI entrypoint + status line
+│   ├── validation.py        # Template validation (wake buffer, Thabbat overlap)
+│   └── data/templates/...   # Bundled example templates
+└── tests/
+	├── test_timeutils.py    # Duration/time parsing
+	├── test_validation.py   # Template validation rules
+	└── test_scheduler.py    # Prayer insertion vs. Thabbat events
+```
+
+## Developing with Nix
+
+```fish
+# launch the planner (Textual UI)
+nix run
+
+# drop into a shell with dependencies & linters
+nix develop
+```
+
+The TUI binds `q` to quit, `r` to regenerate the plan (re-fetching prayers), and `n`/`p` to cycle templates. The status line shows the active template, provider, georesolved location, "TO PLAN" minutes (24h minus configured prayer durations), and the current date.
+
+### Prayer settings
+
+`config.toml` now includes richer sections:
+
+```toml
+[location]
+city = "Istanbul"
+country = "Türkiye"
+use_geolocation = true        # auto-detect via ipapi.co when available
+timezone = "Europe/Istanbul"  # fallback when geolocation is disabled
+
+[prayer_settings]
+provider = "vakit"            # "aladhan" or "vakit"
+calculation_method = "Turkey"  # passed to the provider
+madhab = "Hanafi"             # controls shafi/hanafi Asr styles
+cache_hours = 12              # reuse fetched times for this window
+
+[prayer_durations]
+fajr = "0:20"
+dhuhr = "0:15"
+asr = "0:15"
+maghrib = "0:20"
+isha = "0:20"
+```
+
+- When `use_geolocation` is `true`, Munazzim hits `https://ipapi.co/json/` on startup to resolve latitude/longitude/timezone automatically. The detected values stay in memory (and future runs will detect again), so your `config.toml` remains entirely user-managed. If geolocation is disabled, Munazzim falls back to the manual `location` fields.
+- Provider options: `praytimes` (default, offline via the PrayTimes library), `aladhan` (global API), and `vakit` (Diyanet-aligned, via `https://vakit.vercel.app/api/timesForGPS`).
+- Prayer times fetched from providers are cached under `~/.cache/munazzim/prayer_times.json`. The cache honors `cache_hours` for freshness but will still be used as a fallback if the provider cannot be reached, so the application never rewrites your config file just to store timings.
+- Prayer durations are respected by the scheduler and shown in the status line; editing them controls how much of the day remains "plannable".
+
+### Prayer overrides
+
+Need to shift a single prayer by a few minutes while keeping the others synced to the API response? Add the optional `[prayer_overrides]` table to `config.toml`:
+
+```toml
+[prayer_overrides]
+fajr = "05:18"
+dhuhr = ""
+asr = "16:02"
+maghrib = ""
+isha = ""
+```
+
+Leave entries blank (or omit them) to keep the fetched value. Any populated override takes precedence for that specific prayer after Munazzim loads the provider/cached schedule, so both the TUI and scheduler honor your manual adjustments.
+
+## Testing
+
+```fish
+nix develop -c python -m unittest discover -s tests -t .
+```
+
+The suite currently covers parsing utilities, template validation, and scheduler behavior around Thabbat events; extend it as new features land.

@@ -1,0 +1,314 @@
+# Munazzim - Muslim Daily Planner
+
+## Project Overview
+
+Munazzim is a **terminal-based daily planning application** specifically designed for Muslims that automatically schedules tasks around prayer times. The core philosophy is to help users plan their 24-hour day while respecting Islamic prayer schedules and providing flexibility for real-life adjustments.
+
+## Core Concept
+
+### The Problem
+- Muslims need to plan their day around 5 daily prayers that occur at changing times
+- Traditional planners don't automatically adjust for prayer times
+- Planning needs to be flexible for surprises while maintaining structure
+
+### The Solution
+- **Automatic Prayer Scheduling**: Program inserts prayer times automatically
+- **Relative Time Planning**: Tasks are scheduled relative to each other, not fixed times
+- **Template System**: Pre-defined daily templates for different types of days
+- **Real-time Adjustment**: "Shrinker" system handles unexpected events
+
+## Key Technical Components
+
+### 1. Time Management System
+```python
+# Core time concepts:
+- Absolute times (HH:MM) for fixed events
+- Relative durations (.30 for 30 minutes)
+- Prayer times (calculated via API)
+- Duration parsing (1.30 = 1 hour 30 mins)
+```
+
+### 2. Prayer Integration
+- Fetches prayer times based on geolocation
+- Automatically inserts prayers into the schedule
+- Handles prayer duration configuration
+- Respects "Thabbat" (fixed) events
+
+### 3. Template Engine
+save your daily plans as templates to use them in future days. E.g one can have various templates for holidays which he reads a lot books, studies a lot etc.
+
+### 4. Plan Generation Algorithm
+1. Start from wake-up time
+2. Add relative events sequentially
+3. Insert prayers when prayer time occurs
+4. Handle fixed events at their specified times
+5. Validate total time equals 24 hours
+
+## User Workflow
+
+### Daily Planning
+1. **Select Template**: Choose from pre-defined daily templates
+2. **Generate Plan**: Program creates day schedule with prayers
+3. **Edit**: Modify using preferred text editor
+4. **Execute**: Follow plan, prayers auto-inserted
+5. **Adjust**: Use shrinker for surprises
+
+### Template Management
+- Create templates for different day types (Work, Study, Weekend)
+- Templates are plain text files
+- Easy editing with any text editor
+- Weekly template assignment
+- Munazzim intentionally ships with zero templates. Press `a` in the TUI (or open your `$EDITOR`) to bootstrap `~/.config/munazzim/alqawalib/` with your own qalib files before generating plans.
+- File extensions are optional; any file dropped into `~/.config/munazzim/alqawalib/` (with or without `.qalib`/`.plan`) is treated as a qalib plaintext template by default.
+- When Munazzim encounters a syntax error (for example, forgetting the wake-up time), it stays running, shows “Got this error:” and invites you to press `Enter` to reopen the problematic file for immediate fixes.
+
+Plaintext templates (extensions `.qalib` or `.plan`) mirror the qalib syntax from `PLAN.md`:
+
+```
+# name: Example Flow
+05:00                    # wake time
+.30 Wudu & Salah         # relative block (minutes when prefixed with `.`)
+7:30 08:00 Commute       # fixed Thabbat block (start + end time)
+- [7*2] Revise Tafsir    # task with recurrence math
+```
+
+Drop these files under `~/.config/munazzim/alqawalib/`. Munazzim ships with zero templates on purpose—use your editor (or the `a` shortcut) to create the qalib files that fit your routine. The directory hot-reloads on `r` so you can iterate with vim/helix quickly.
+
+## Technical Architecture
+
+### Data Structures Needed
+- **Event**: Base unit with duration, type, name
+- **Task**: Subtask attached to events
+- **Template**: Collection of events for a day type
+- **DayPlan**: Generated schedule for specific date
+- **PrayerTimes**: Calculated prayer schedule
+
+### External Integrations
+- **Prayer Time APIs**: Aladhan, Diyanet, Pray.Zone
+- **Google Calendar**: Sync events and tasks
+- **Google Tasks**: Manage subtasks
+
+### Google Tasks authentication
+
+Munazzim can sync with Google Tasks. The first time you use this feature (open the Tasks table with `f` then press `s` to pick a list), the app will open an interactive OAuth flow in your browser. To enable this:
+
+1. Create OAuth 2.0 credentials for an "Installed" app in the Google Cloud Console and download the JSON client secret.
+2. Save the JSON to `~/.config/munazzim/google_client_secret.json`.
+3. Run Munazzim (or use `nix develop --command pytest` for running tests). The first time you request Google Tasks access, the browser-based consent screen will open and the resulting token is saved to `~/.config/munazzim/google_tasks_token.json`.
+
+This flow is interactive and requires a machine with a browser (it uses the local web-server flow for InstalledAppFlow). If you don't configure the client secrets the app will raise FileNotFoundError when trying to authenticate (this is covered by tests that assert the helpful error message). If you need non-interactive service access consider using a separate service account setup.
+- **Geolocation**: Auto-detect location for prayer times
+
+## Unique Features
+
+### 1. Shrinker System
+```python
+# Handles unexpected events:
+- Start timer for surprise task
+- Stop when done
+- Program redistributes time from flexible tasks
+- Fixed events remain unchanged
+```
+
+### 2. Smart Task Attachment
+```python
+# Subtasks with recurrence:
+"1.30 Read (Science)"
+"- [16] Read Empire of Cotton"  # Appears for 16 occurrences
+```
+
+- Every task inherits the event name it is defined under, so the assignment engine attaches it to **every** occurrence of that event across all qalib templates (Monday’s "Reading" block and Friday’s "Reading" block share the same checklist automatically).
+- Recurrence counters (`[16]`) are treated as "sessions" rather than days; when the event fires twice per week the counter drops twice per week.
+- Progress is persisted in `~/.config/munazzim/taskbook.json`, so quitting/restarting the TUI keeps your remaining counts intact.
+- Counted tasks behave like literal checkboxes: the engine issues one checkbox per matching event occurrence, in chronological order, until the total is exhausted. If you have two "Reading" sessions per day and write `- [4] Read the book`, you’ll see two boxes today and two tomorrow—never four stacked on the same event—and each box can be toggled on/off exactly once.
+- Press `f` to swap the main pane into the Tasks table (press `f` again to return), then hit `Enter` (or space) to mark the highlighted checklist item complete; the UI shows the live `done/total` fraction plus the note from the template.
+- Tasks without a counter (`- [] …`) stay in the list indefinitely and can still be checked off to timestamp when you last finished them—the Tasks table now shows `✓ Today/Yesterday/<date>` so you always know the last completion.
+
+### 3. Relative Time Planning
+- No fixed clock times (except Thabbat events)
+- Events flow sequentially
+- Automatic adjustment when prayers inserted
+
+## Development Approach
+
+### Phase 1: MVP (Weeks 1-4)
+**Core functionality only:**
+- Basic TUI with template selection
+- Simple time calculation
+- Manual prayer time input
+- Basic plan generation
+
+### Phase 2: Prayer Integration (Weeks 5-8)
+**Smart scheduling:**
+- Prayer time APIs
+- Automatic prayer insertion
+- Conflict resolution
+- Duration configuration
+
+### Phase 3: Advanced Features (Weeks 9-12)
+**Polish and power features:**
+- Shrinker system
+- Google integration
+- Subtask management
+- Week planning view
+
+## Success Criteria
+
+### Functional Requirements
+- Plan generation under 2 seconds
+- Prayer time accuracy within 1 minute
+- Handle all 5 daily prayers correctly
+- Support for flexible and fixed events
+- Template switching in under 1 second
+
+### User Experience
+- Intuitive TUI navigation
+- Clear time visualization
+- Easy template editing
+- Meaningful error messages
+- Quick plan adjustments
+
+## Technical Constraints
+
+### Performance
+- Memory: < 100MB typical usage
+- Startup: < 3 seconds
+- Plan generation: < 2 seconds
+- Prayer calculation: < 1 second
+
+### Compatibility
+- Python 3.8+
+- Cross-platform (Linux, macOS, Windows)
+- Works in standard terminals
+- Supports common editors (vim, VSCode, etc.)
+
+## Risk Mitigation
+
+### Technical Risks
+- **Prayer API reliability**: Cache times with fallback
+- **Time calculation complexity**: Thorough testing with edge cases
+- **Google API quotas**: Implement efficient sync strategies
+- **TUI complexity**: Progressive enhancement approach
+
+### User Adoption
+- **Learning curve**: Comprehensive documentation
+- **Template creation**: Provide rich example templates
+- **Error recovery**: Robust backup and validation
+- **Mobile access**: Google Calendar sync for on-the-go access
+
+This project combines practical daily planning with religious observance in a technically sophisticated but user-friendly package. The terminal-based approach ensures speed and efficiency while the template system provides the flexibility needed for varied daily routines.
+
+## Phase 1 + 2 Status
+
+The repository now includes the original MVP foundation plus the Phase 2 prayer-aware enhancements:
+
+- **Nix-first toolchain** – `flake.nix` builds the Python package and exposes the TUI via `nix run`.
+- **Config system** – TOML-driven user settings with automatic bootstrapping under `~/.config/munazzim/config.toml`.
+- **Domain models** – Events, tasks, templates, and generated day plans captured via typed dataclasses.
+- **Template engine** – Loads bundled TOML templates plus user-defined plaintext qalib files in `~/.config/munazzim/alqawalib/`, with duration parsing, task counters, and validation for fixed vs. relative/Thabbat events.
+- **Time engine** – Duration parsing plus a scheduler that splits events around the five daily prayers and respects fixed-time blocks.
+- **Prayer services** – Geolocation-aware fetchers for Aladhan and the Vakit (Diyanet) API with on-disk caching and configurable calculation methods.
+- **Validation** – Wake-time and Thabbat overlap checks with friendly error feedback inside the TUI status line.
+- **Textual TUI** – Header, richer status line (template/provider/location/to-plan), plan table, template picker modal, week planner, and direct `$EDITOR` shortcuts for editing qalibs alongside refresh/switch keybindings.
+
+## Repository Layout
+
+```
+├── flake.nix                # Nix entrypoint (run/build/dev shell)
+├── pyproject.toml           # Python metadata + dependencies (Textual, Rich)
+├── src/munazzim/
+│   ├── config.py            # Config manager & defaults
+│   ├── models.py            # Core dataclasses
+│   ├── scheduler.py         # Prayer-aware plan builder
+│   ├── services/            # Geolocation + prayer-time clients with caching
+│   ├── templates.py         # Template repository & parser
+│   ├── timeutils.py         # HH:MM & duration helpers
+│   ├── tui/app.py           # Textual UI entrypoint + status line
+│   ├── validation.py        # Template validation (wake buffer, Thabbat overlap)
+│   └── data/templates/...   # Bundled example templates
+└── tests/
+	├── test_timeutils.py    # Duration/time parsing
+	├── test_validation.py   # Template validation rules
+	└── test_scheduler.py    # Prayer insertion vs. Thabbat events
+```
+
+## Developing with Nix
+
+```fish
+# launch the planner (Textual UI)
+nix run
+
+# drop into a shell with dependencies & linters
+nix develop
+```
+
+Key bindings now include `q` (quit), `r` (regenerate plan and reload config/templates), `n/p` or `l/h` (cycle templates for the selected weekday), `j/k` plus `gg`/`G` (Vim-style navigation of rows in the schedule and week planner), `t` (open the template picker modal), `w` (focus the inline week planner panel), `f` (toggle the main pane between today's schedule and the aggregated Tasks table), `e` (open the active qalib in your `$EDITOR`), and `a` (launch your `$EDITOR` inside `~/.config/munazzim/alqawalib/` for new qalib files). Once the Tasks table is visible you can press `Enter` (or space) to mark the highlighted checklist item complete; the status line mirrors the active template, provider, location, "TO PLAN" minutes, and the current date/state.
+
+- **Template Picker (`t`)** shows every TOML/qalib template (name + description). Selecting one immediately switches the active template and persists it for the current weekday inside `[planner.week_templates]`.
+- **Inline Week Planner (`w` to focus)** lives in the right-hand panel. Use `h/l` (or arrow keys) to change the template for the highlighted day, `j/k` to move, `Delete` to clear, and `gg` / `G` to jump to the start/end. Changes are auto-saved when the panel loses focus, so there is no separate modal or save key anymore.
+- **Main Screen Layout** – The default view splits into two panels: the left side shows today's schedule with the on-going event highlighted automatically, while the right side hosts the weekly template summary (showing which qalib is assigned to each weekday with today's marked). Press `f` any time to flip the left pane into the interactive Tasks table—this aggregates every task attached to today's plan, shows the live `done/total` counter, and lets you mark items complete directly from the keyboard (`Enter`/space). Press `f` again to jump back to the schedule.
+
+### Template Authoring Shortcut
+- Press `a` anywhere in the TUI to open `$EDITOR` (or `$VISUAL`, falling back to a detected editor) with the working directory set to `~/.config/munazzim/alqawalib/`. Munazzim suspends the Textual UI so your editor receives the full terminal; when you exit, it resumes, reloads the directory, and your new qalib/TOML files appear instantly in the pickers.
+
+### Prayer settings
+
+`config.toml` now includes richer sections:
+
+```toml
+[location]
+city = "Istanbul"
+country = "Türkiye"
+use_geolocation = true        # auto-detect via ipapi.co when available
+timezone = "Europe/Istanbul"  # fallback when geolocation is disabled
+
+[prayer_settings]
+provider = "vakit"            # "aladhan" or "vakit"
+calculation_method = "Turkey"  # passed to the provider
+madhab = "Hanafi"             # controls shafi/hanafi Asr styles
+cache_days = 90               # keep at most this many day-specific entries cached
+
+[prayer_durations]
+fajr = "0:20"
+dhuhr = "0:15"
+asr = "0:15"
+maghrib = "0:20"
+isha = "0:20"
+```
+
+- When `use_geolocation` is `true`, Munazzim hits `https://ipapi.co/json/` on startup to resolve latitude/longitude/timezone automatically. The detected values stay in memory (and future runs will detect again), so your `config.toml` remains entirely user-managed. If geolocation is disabled, Munazzim falls back to the manual `location` fields.
+- Provider options: `aladhan` (default, global API), `praytimes` (offline via the PrayTimes library), and `vakit` (Diyanet-aligned, via `https://vakit.vercel.app/api/timesForGPS`).
+- Prayer times fetched from providers are cached under `~/.cache/munazzim/prayer_times.json`. Each day gets its own entry, and Munazzim keeps up to `cache_days` of day-specific responses (90 by default, roughly three months). When the app successfully reaches a provider it immediately spins up a background prefetch that grabs the remaining days in that window so you can stay offline afterward. Cache persistence happens asynchronously so rendering the TUI isn't blocked, and the application never rewrites your config file just to store timings.
+- Prayer durations are respected by the scheduler and shown in the status line; editing them controls how much of the day remains "plannable".
+
+### Prayer overrides
+
+Need to shift a single prayer by a few minutes while keeping the others synced to the API response? Add the optional `[prayer_overrides]` table to `config.toml`:
+
+```toml
+[prayer_overrides]
+fajr = "05:18"
+dhuhr = ""
+asr = "16:02"
+maghrib = ""
+isha = ""
+```
+
+Leave entries blank (or omit them) to keep the fetched value. Any populated override takes precedence for that specific prayer after Munazzim loads the provider/cached schedule, so both the TUI and scheduler honor your manual adjustments.
+
+### Task progress persistence
+
+- Every completion is written to `~/.config/munazzim/taskbook.json`. The file is tiny JSON (`{"tasks": {...}}`) and is created automatically.
+- Delete that file if you want to reset all counters (for instance when you finish a book and want to start over at `[16]`).
+- Because the ledger lives under the same config root as your qalib files, it is naturally included in any dotfiles backup.
+
+## Testing
+
+```fish
+# Use the nix dev shell; tests use pytest in the development shell
+nix develop --command pytest -q
+
+nix develop -c python -m unittest discover -s tests -t .
+```
+
+The suite currently covers parsing utilities, template validation, and scheduler behavior around Thabbat events; extend it as new features land.

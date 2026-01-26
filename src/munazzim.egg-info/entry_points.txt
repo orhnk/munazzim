@@ -1,0 +1,2 @@
+[console_scripts]
+munazzim = munazzim.__main__:main
