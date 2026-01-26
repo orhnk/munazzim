@@ -515,27 +515,12 @@ class PlanTable(DataTable):
 
     def action_cursor_down(self) -> None:
         self.move_rows(1)
-        try:
-            if hasattr(self.app, "on_user_navigated"):
-                self.app.on_user_navigated()
-        except Exception:
-            pass
 
     def action_cursor_up(self) -> None:
         self.move_rows(-1)
-        try:
-            if hasattr(self.app, "on_user_navigated"):
-                self.app.on_user_navigated()
-        except Exception:
-            pass
 
     def action_cursor_bottom(self) -> None:
         self.jump_to_row(self.row_count - 1)
-        try:
-            if hasattr(self.app, "on_user_navigated"):
-                self.app.on_user_navigated()
-        except Exception:
-            pass
 
     def action_cursor_left(self) -> None:
         """Move focus horizontally to the left column if available."""
@@ -546,11 +531,6 @@ class PlanTable(DataTable):
             self.cursor_coordinate = (row, col)
         except Exception:
             return
-        try:
-            if hasattr(self.app, "on_user_navigated"):
-                self.app.on_user_navigated()
-        except Exception:
-            pass
 
     def action_cursor_right(self) -> None:
         """Move focus horizontally to the right column if available."""
@@ -561,11 +541,6 @@ class PlanTable(DataTable):
             self.cursor_coordinate = (row, col)
         except Exception:
             return
-        try:
-            if hasattr(self.app, "on_user_navigated"):
-                self.app.on_user_navigated()
-        except Exception:
-            pass
 
     def on_key(self, event: events.Key) -> None:  # type: ignore[override]
         if event.key == "f":
@@ -1164,6 +1139,7 @@ class MunazzimApp(App):
                             p_default = None
                         if p_default is not None and scheduled.event.duration != p_default:
                             label = f"{label} (overridden {format_duration(scheduled.event.duration)})"
+                            overrides_found.append(f"{scheduled.event.prayer}: {format_duration(scheduled.event.duration)}")
                 except Exception:
                     pass
                 duration = format_duration(scheduled.event.duration)
@@ -1177,18 +1153,6 @@ class MunazzimApp(App):
                 # the per-event task file).
                 try:
                     self.plan_table._row_metadata.append(scheduled)
-                except Exception:
-                    pass
-                try:
-                    from ..models import PrayerEvent
-                    if isinstance(scheduled.event, PrayerEvent):
-                        p_label = scheduled.event.prayer.strip().lower()
-                        try:
-                            p_default = getattr(self.config.prayer_settings.durations, p_label)
-                        except Exception:
-                            p_default = None
-                        if p_default is not None and scheduled.event.duration != p_default:
-                            overrides_found.append(f"{scheduled.event.prayer}: {format_duration(scheduled.event.duration)}")
                 except Exception:
                     pass
             plan_occurrences = self.task_engine.plan_occurrences(plan)
@@ -1239,7 +1203,7 @@ class MunazzimApp(App):
                             # Kick off an async refresh in background to update
                             # cached entries without blocking UI.
                             try:
-                                self._schedule_tasklist_refresh(list_id, event_start_map)
+                                self._schedule_tasklist_refresh(list_id)
                             except Exception:
                                 pass
                         # Find a human-friendly name for the list (title) so we can
@@ -1883,7 +1847,7 @@ class MunazzimApp(App):
             return
         self._google_tasks_cache.pop(list_id, None)
 
-    def _schedule_tasklist_refresh(self, list_id: str, event_start_map: dict[str, datetime] | None) -> None:
+    def _schedule_tasklist_refresh(self, list_id: str, event_start_map: dict[str, datetime] | None = None) -> None:
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
@@ -2544,138 +2508,6 @@ class MunazzimApp(App):
             return occ.astimezone(_tz.utc).isoformat().replace("+00:00", "Z")
         except Exception:
             return None
-        # NOTE: All the sync logic is handled in _sync_week_to_google_calendar_debug()
-        # The code that follows used to be the sync logic; it is kept here only
-        # for backward compatibility and is not executed.
-
-        # Helper to map weekday name to BYDAY style codes used in RRULE
-        weekday_map = {
-            "monday": "MO",
-            "tuesday": "TU",
-            "wednesday": "WE",
-            "thursday": "TH",
-            "friday": "FR",
-            "saturday": "SA",
-            "sunday": "SU",
-        }
-
-        now_dt = datetime.now()
-        # We'll list existing events for the whole week to dedupe
-        start_of_week = None
-        from datetime import timedelta as _td
-        try:
-            today = self.current_date
-        except Exception:
-            from datetime import date as _date
-
-            today = _date.today()
-        # Resolve start_of_week (date) as Monday of the current week
-        start_of_week_date = today - _td(days=today.weekday())
-        # Time range for a calendar list query: start at 00:00 of Monday to end 23:59:59 Sunday
-        from zoneinfo import ZoneInfo
-        from datetime import timezone as _tz
-
-        tzname = self.config.location.timezone if getattr(self.config, 'location', None) and getattr(self.config.location, 'timezone', None) else None
-        try:
-            tz = ZoneInfo(tzname) if tzname else datetime.now().astimezone().tzinfo
-        except Exception:
-            tz = datetime.now().astimezone().tzinfo
-        start_dt = datetime.combine(start_of_week_date, datetime.min.time()).replace(tzinfo=tz)
-        end_dt = (start_dt + _td(days=7)).replace(tzinfo=tz)
-        time_min = start_dt.astimezone(_tz.utc).isoformat().replace("+00:00", "Z")
-        time_max = end_dt.astimezone(_tz.utc).isoformat().replace("+00:00", "Z")
-
-        try:
-            existing = self.google_calendar_service.list_events(cal_id, timeMin=time_min, timeMax=time_max)
-        except Exception:
-            existing = []
-
-        # Build a set of existing signatures for deduping: eventname|byday|time
-        existing_signatures = set()
-        for ev in existing:
-            try:
-                props = getattr(ev, 'extended_properties', None) or {}
-                private = (props.get("private") or {})
-                sig = private.get("munazzim_signature")
-                if sig:
-                    existing_signatures.add(sig)
-            except Exception:
-                continue
-
-        # Iterate the week, generate plans and create events
-        for day_name in WEEKDAY_ORDER:
-            tpl_name = self.week_assignments.get(day_name)
-            # If no assignment exists for this day, fall back to the active
-            # template name (or configured default) so the whole week is
-            # synced based on the day-specific active/default template
-            if not tpl_name:
-                tpl_name = self.active_template_name or self.config.planner.default_template
-            if not tpl_name:
-                continue
-            try:
-                tpl = self.templates.get(tpl_name)
-            except Exception:
-                continue
-            # Compute target_date for this day_name inside the current week
-            try:
-                target_index = WEEKDAY_ORDER.index(day_name)
-                start_of_week_date = today - _td(days=today.weekday())
-                target_date = start_of_week_date + _td(days=target_index)
-            except Exception:
-                continue
-            try:
-                prayer_schedule = self.prayer_service.get_schedule(target_date)
-                plan = self.scheduler.build_plan(tpl, plan_date=target_date, prayer_schedule=prayer_schedule)
-            except Exception:
-                continue
-            for sched in plan.items:
-                try:
-                    ev_name = sched.display_name
-                except Exception:
-                    continue
-                byday = weekday_map.get(day_name, None)
-                if not byday:
-                    continue
-                # signature for dedupe: name|byday|localtime
-                local_time = sched.start.replace(tzinfo=tz) if sched.start.tzinfo is None else sched.start.astimezone(tz)
-                sig = f"{ev_name}|{byday}|{local_time.strftime('%H:%M')}"
-                # Do not filter by existing remote events — we always want to include
-                # the local plan in the payloads so higher levels can decide what
-                # to apply. This avoids hiding existing events from debugging
-                # and ensures the planned list is complete.
-                # Build event payload
-                start_iso = local_time.isoformat()
-                # compute end by combining scheduled end if present or use duration
-                if getattr(sched, "end", None):
-                    end_local = sched.end.replace(tzinfo=tz) if sched.end.tzinfo is None else sched.end.astimezone(tz)
-                else:
-                    end_local = (local_time + sched.event.duration)
-                    if end_local.tzinfo is None:
-                        end_local = end_local.replace(tzinfo=tz)
-                end_iso = end_local.isoformat()
-                rrule = f"RRULE:FREQ=WEEKLY;BYDAY={byday}"
-                payload = {
-                    "summary": ev_name,
-                    "start": {"dateTime": start_iso},
-                    "end": {"dateTime": end_iso},
-                    "recurrence": [rrule],
-                    "extendedProperties": {"private": {"munazzim_signature": sig, "munazzim_event": getattr(sched.event, 'name', '')}},
-                }
-                try:
-                    # Always attempt to create the event as we drive sync from the
-                    # local fingerprint; remote is considered authoritative read-only
-                    # and we don't attempt to smart-sync.
-                    self.google_calendar_service.create_event(cal_id, payload)
-                    created_count += 1
-                except Exception:
-                    continue
-        # Save the fingerprint so subsequent runs can be skipped unless local change
-        try:
-            if fingerprint:
-                self._write_last_fingerprint(fingerprint)
-        except Exception:
-            pass
-        return created_count
 
     def _sync_today_to_google_calendar(self, delete_all: bool = True) -> int:
         """Force-synchronize today's events (delete and replace).

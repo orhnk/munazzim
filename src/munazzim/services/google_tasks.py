@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Mapping
 
 from google.auth.transport.requests import Request  # type: ignore[import]
 from google.oauth2.credentials import Credentials  # type: ignore[import]

@@ -116,7 +116,6 @@ class Scheduler:
     ) -> None:
         # If this is a dedicated prayer placeholder from a template, schedule
         # the matching prayer slot instead of treating it as a normal event.
-        from datetime import timedelta
         if isinstance(event, PrayerEvent):
             # Find the next prayer slot matching the prayer name and schedule it.
             target_label = event.prayer.strip().lower()

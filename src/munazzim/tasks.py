@@ -574,7 +574,13 @@ class TaskAssignmentEngine:
     def _task_id_from_assignment(self, assignment_id: str) -> str | None:
         if ":" not in assignment_id:
             return None
-        task_id, _ = assignment_id.split(":", 1)
+        # Handle google task ids which have format "google:list_id:task_id:hash"
+        # and regular task ids which have format "task-hash:assignment_hash"
+        # The task_id is everything before the last colon
+        last_colon = assignment_id.rfind(":")
+        if last_colon == -1:
+            return None
+        task_id = assignment_id[:last_colon]
         if not task_id:
             return None
         if task_id not in self._definitions_by_id:

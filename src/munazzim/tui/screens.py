@@ -5,7 +5,6 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 import os
-from pathlib import Path
 from typing import Iterable, Sequence
 
 from textual.app import ComposeResult  # type: ignore[import]

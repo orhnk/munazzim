@@ -2,6 +2,9 @@ textual>=6.6.0
 rich>=14.1.0
 httpx<0.29,>=0.26
 islam<3,>=2.2
+google-api-python-client>=2.75.0
+google-auth>=2.21.0
+google-auth-oauthlib>=1.1.0
 
 [dev]
 pytest<9.0,>=9.0.1
