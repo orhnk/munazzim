@@ -10,6 +10,7 @@ class EventType(str, Enum):
     RELATIVE = "relative"
     FIXED = "fixed"
     PRAYER = "prayer"
+    PRAYER_BOUND = "prayer_bound"
 
 
 @dataclass(slots=True)
@@ -43,6 +44,13 @@ class PrayerEvent(Event):
     prayer: str = ""
     anchor: time | None = None
     event_type: EventType = EventType.PRAYER
+
+
+@dataclass(slots=True)
+class PrayerBoundEvent(Event):
+    start_ref: time | str | None = None
+    end_ref: time | str | None = None
+    event_type: EventType = EventType.PRAYER_BOUND
 
 
 @dataclass(slots=True)

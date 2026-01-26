@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from datetime import date, datetime, time as time_type, timedelta
+import re
 
 from .config import MunazzimConfig, PrayerSchedule, PrayerDurations
 from typing import Any
-from .models import DayPlan, DayTemplate, Event, FixedEvent, PrayerEvent, ScheduledEvent
+from .models import DayPlan, DayTemplate, Event, FixedEvent, PrayerBoundEvent, PrayerEvent, ScheduledEvent
 from .timeutils import TimeCursor
 
 
@@ -45,6 +46,41 @@ class Scheduler:
             durations = PrayerDurations()
         prayer_slots = self._prayer_slots(cursor.anchor_date, schedule, durations)
         prayer_index = 0
+
+        prayer_time_map = {
+            "fajr": schedule.fajr,
+            "dhuhr": schedule.dhuhr,
+            "duhr": schedule.dhuhr,
+            "asr": schedule.asr,
+            "maghrib": schedule.maghrib,
+            "isha": schedule.isha,
+        }
+        prayer_offset_token = re.compile(r"^(?P<prayer>[A-Za-z]+)(?P<sign>[+-])(?P<minutes>\d{1,3})$")
+
+        def resolve_ref(value: time_type | str | None) -> datetime | None:
+            if value is None:
+                return None
+            if isinstance(value, time_type):
+                return datetime.combine(cursor.anchor_date, value)
+            raw = value.strip()
+            offset_match = prayer_offset_token.match(raw)
+            if offset_match:
+                key = offset_match.group("prayer").strip().lower()
+                sign = offset_match.group("sign")
+                minutes = int(offset_match.group("minutes"))
+                moment = prayer_time_map.get("dhuhr" if key == "duhr" else key)
+                if moment is None:
+                    return None
+                base_dt = datetime.combine(cursor.anchor_date, moment)
+                delta = timedelta(minutes=minutes)
+                if sign == "-":
+                    delta = -delta
+                return base_dt + delta
+            key = raw.lower()
+            moment = prayer_time_map.get(key)
+            if moment is None:
+                return None
+            return datetime.combine(cursor.anchor_date, moment)
 
         def peek_prayer() -> PrayerSlot | None:
             return prayer_slots[prayer_index] if prayer_index < len(prayer_slots) else None
@@ -93,6 +129,7 @@ class Scheduler:
                 pop_prayer,
                 schedule_prayer,
                 push_prayers_after,
+                resolve_ref,
             )
 
         # add any remaining prayers at the end
@@ -113,7 +150,31 @@ class Scheduler:
         pop_prayer,
         schedule_prayer,
         push_prayers_after,
+        resolve_ref,
     ) -> None:
+        if isinstance(event, PrayerBoundEvent):
+            start_dt = resolve_ref(event.start_ref) if event.start_ref is not None else cursor.position
+            end_dt = resolve_ref(event.end_ref) if event.end_ref is not None else None
+            if start_dt is None:
+                return
+            if end_dt is None:
+                if event.duration <= timedelta(0):
+                    return
+                end_dt = start_dt + event.duration
+            if end_dt <= start_dt:
+                end_dt = end_dt + timedelta(days=1)
+            if event.start_ref is not None:
+                cursor.position = start_dt
+            start, end = cursor.advance(end_dt - start_dt)
+            plan.add(
+                ScheduledEvent(
+                    event=replace(event, duration=end - start),
+                    start=start,
+                    end=end,
+                )
+            )
+            push_prayers_after(end)
+            return
         # If this is a dedicated prayer placeholder from a template, schedule
         # the matching prayer slot instead of treating it as a normal event.
         if isinstance(event, PrayerEvent):

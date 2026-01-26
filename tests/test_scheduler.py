@@ -178,6 +178,33 @@ class SchedulerPrayerTest(unittest.TestCase):
             self.assertEqual(len(parr), 1)
             self.assertEqual(parr[0].end - parr[0].start, timedelta(minutes=15))
 
+    def test_qalib_prayer_bound_duration_event(self) -> None:
+        from munazzim.qalib import parse_qalib
+        raw = """
+        04:00
+        Fajr +2 Dawn Study
+        """
+        template = parse_qalib(raw, default_name="PrayerBound")
+        plan = self.scheduler.build_plan(template, plan_date=date(2025, 1, 1), prayer_schedule=self.config.prayers)
+        # Event should start at Fajr time and last two hours
+        target = next((item for item in plan.items if item.event.name == "Dawn Study"), None)
+        self.assertIsNotNone(target)
+        self.assertEqual(target.start.time(), time(5, 0))
+        self.assertEqual(target.end.time(), time(7, 0))
+
+    def test_qalib_prayer_range_event(self) -> None:
+        from munazzim.qalib import parse_qalib
+        raw = """
+        04:00
+        Dhuhr..Asr Reading
+        """
+        template = parse_qalib(raw, default_name="PrayerRange")
+        plan = self.scheduler.build_plan(template, plan_date=date(2025, 1, 1), prayer_schedule=self.config.prayers)
+        target = next((item for item in plan.items if item.event.name == "Reading"), None)
+        self.assertIsNotNone(target)
+        self.assertEqual(target.start.time(), time(9, 30))
+        self.assertEqual(target.end.time(), time(15, 30))
+
 
 if __name__ == "__main__":
     unittest.main()

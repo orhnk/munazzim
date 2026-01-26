@@ -242,8 +242,13 @@ class ConfigManager:
     def __init__(self, config_path: Path | None = None) -> None:
         self.config_path = config_path or (Path.home() / ".config" / "munazzim" / "config.toml")
         self.config_path.parent.mkdir(parents=True, exist_ok=True)
+        self._errors: list[str] = []
+
+    def errors(self) -> list[str]:
+        return list(self._errors)
 
     def load(self) -> MunazzimConfig:
+        self._errors.clear()
         if not self.config_path.exists():
             config = MunazzimConfig.default()
             self._write(config)
@@ -271,6 +276,24 @@ class ConfigManager:
         template_dir = Path(template_dir_value).expanduser()
         template_dir.mkdir(parents=True, exist_ok=True)
 
+        try:
+            prayers = PrayerSchedule.from_dict(raw.get("prayers", {}))
+        except Exception as exc:
+            self._errors.append(f"Invalid prayer time in config: {exc}")
+            prayers = PrayerSchedule.from_dict({})
+
+        try:
+            day_start = parse_hhmm(planner_cfg.get("day_start", "05:00"))
+        except Exception as exc:
+            self._errors.append(f"Invalid planner.day_start: {exc}")
+            day_start = parse_hhmm("05:00")
+
+        try:
+            durations = PrayerDurations.from_dict(raw.get("prayer_durations", {}))
+        except Exception as exc:
+            self._errors.append(f"Invalid prayer_durations in config: {exc}")
+            durations = PrayerDurations()
+
         config = MunazzimConfig(
             location=LocationSettings(
                 city=location_cfg.get("city", ""),
@@ -280,10 +303,10 @@ class ConfigManager:
                 timezone=location_cfg.get("timezone"),
                 use_geolocation=location_cfg.get("use_geolocation", True),
             ),
-            prayers=PrayerSchedule.from_dict(raw.get("prayers", {})),
+            prayers=prayers,
             planner=PlannerPreferences(
                 default_template=planner_cfg.get("default_template", ""),
-                day_start=parse_hhmm(planner_cfg.get("day_start", "05:00")),
+                day_start=day_start,
                 template_dir=template_dir,
                 week_templates={_normalize_day(k): v for k, v in week_cfg.items() if v},
                 google_task_list=planner_cfg.get("google_task_list", ""),
@@ -295,7 +318,7 @@ class ConfigManager:
                 calculation_method=raw.get("prayer_settings", {}).get("calculation_method", "Diyanet"),
                 madhab=raw.get("prayer_settings", {}).get("madhab", "Shafi"),
                 cache_days=int(raw.get("prayer_settings", {}).get("cache_days", 90)),
-                durations=PrayerDurations.from_dict(raw.get("prayer_durations", {})),
+                durations=durations,
             ),
             prayer_overrides=PrayerOverrides.from_dict(raw.get("prayer_overrides", {})),
         )

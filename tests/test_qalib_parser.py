@@ -1,6 +1,7 @@
 from datetime import time, timedelta
 
 from munazzim.models import FixedEvent
+from munazzim.models import PrayerBoundEvent
 from munazzim.qalib import parse_qalib, render_template
 
 
@@ -39,6 +40,46 @@ def test_qalib_round_trip() -> None:
     assert regenerated.start_time == template.start_time
     assert regenerated.events[0].duration == template.events[0].duration
     assert regenerated.events[1].duration == template.events[1].duration
+
+
+def test_qalib_parses_fixed_duration_events() -> None:
+    template = parse_qalib("05:00\n12:30 +2 Focus Block\n", default_name="Fixed")
+    assert len(template.events) == 1
+    fixed = template.events[0]
+    assert isinstance(fixed, FixedEvent)
+    assert fixed.anchor == time(12, 30)
+    assert fixed.duration == timedelta(hours=2)
+
+
+def test_qalib_parses_prayer_bound_duration_events() -> None:
+    template = parse_qalib("05:00\nFajr +2 Dawn Study\n", default_name="PrayerBound")
+    assert len(template.events) == 1
+    bound = template.events[0]
+    assert isinstance(bound, PrayerBoundEvent)
+    assert bound.start_ref == "Fajr"
+    assert bound.duration == timedelta(hours=2)
+
+
+def test_qalib_parses_prayer_range_events() -> None:
+    template = parse_qalib("05:00\nDhuhr..Asr Reading\n..Maghrib Run\n", default_name="PrayerRange")
+    assert len(template.events) == 2
+    first = template.events[0]
+    assert isinstance(first, PrayerBoundEvent)
+    assert first.start_ref == "Dhuhr"
+    assert first.end_ref == "Asr"
+    second = template.events[1]
+    assert isinstance(second, PrayerBoundEvent)
+    assert second.start_ref is None
+    assert second.end_ref == "Maghrib"
+
+
+def test_qalib_parses_prayer_offset_ranges() -> None:
+    template = parse_qalib("05:00\n..Maghrib-50 Evening Prep\n", default_name="PrayerOffset")
+    assert len(template.events) == 1
+    event = template.events[0]
+    assert isinstance(event, PrayerBoundEvent)
+    assert event.start_ref is None
+    assert event.end_ref == "Maghrib-50"
 
 
 def test_qalib_parses_prayer_tokens() -> None:

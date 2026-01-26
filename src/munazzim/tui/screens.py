@@ -313,6 +313,56 @@ class ErrorScreen(ModalScreen[None]):
             pass
 
 
+class WarningScreen(ModalScreen[str | None]):
+    """Modal screen to display warning messages with actions.
+
+    Actions: Quit app, reload config, skip template, edit template, or dismiss.
+    """
+
+    BINDINGS = [
+        Binding("escape", "dismiss", "Dismiss"),
+        Binding("enter", "dismiss", "Dismiss"),
+        Binding("q", "quit", "Quit"),
+        Binding("r", "reload", "Reload"),
+        Binding("s", "skip", "Skip Template"),
+        Binding("e", "edit", "Edit Template"),
+    ]
+
+    def __init__(self, prefix: str, message: str | list[str]) -> None:
+        super().__init__()
+        self.prefix = prefix
+        if isinstance(message, list):
+            self.messages = list(message)
+        else:
+            self.messages = [str(message)]
+
+    def compose(self) -> ComposeResult:
+        title = Static(f"{self.prefix}", classes="dialog-title")
+        help_text = Static(
+            "Enter/Esc = Dismiss • r = Reload • s = Skip template • e = Edit • q = Quit",
+            classes="dialog-help",
+        )
+        items = []
+        for msg in self.messages:
+            items.append(Static(msg, classes="dialog-item", markup=False))
+        yield Vertical(title, *items, help_text, id="warning-dialog")
+
+    def action_dismiss(self) -> None:
+        self.dismiss(None)
+
+    def action_quit(self) -> None:
+        self.dismiss("quit")
+
+    def action_reload(self) -> None:
+        self.dismiss("reload")
+
+    def action_skip(self) -> None:
+        self.dismiss("skip")
+
+    def action_edit(self) -> None:
+        self.dismiss("edit")
+
+
     # SyncErrorsScreen consolidated into ErrorScreen. Use ErrorScreen with a list of messages.
 
 

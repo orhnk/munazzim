@@ -42,6 +42,7 @@ from .screens import (
     TemplatePickerScreen,
     TemplateErrorScreen,
     ErrorScreen,
+    WarningScreen,
     TaskListChoice,
     TaskListPickerScreen,
     TextEntryScreen,
@@ -369,6 +370,10 @@ class WeekPlannerWidget(Widget):
         super().__init__(classes="panel week-panel")
         self._on_assignments_changed = on_assignments_changed
         self.table = WeekPlannerTable(self._notify_change)
+        try:
+            self.table.styles.height = "1fr"
+        except Exception:
+            pass
         self._help = Static(
             "[dim]h/l change • j/k move • gg/G jump • delete clear • w focus[/dim]",
             classes="panel-help",
@@ -383,6 +388,10 @@ class WeekPlannerWidget(Widget):
             )
             # ensure the todo box is visible in the side panel
             self.todo_table.visible = True
+            try:
+                self.todo_table.styles.height = "auto"
+            except Exception:
+                pass
 
     def compose(self) -> ComposeResult:
         yield Static("Week Templates", classes="panel-title")
@@ -410,8 +419,8 @@ class WeekPlannerWidget(Widget):
     def set_todos(self, items: list[TodoDisplay]) -> None:
         if self.todo_table:
             self.todo_table.update_tasks(items)
-            # show / hide todo list based on items
-            self.todo_table.visible = bool(items)
+            # Always show todo list; empty state renders a message row.
+            self.todo_table.visible = True
 
     def jump_top(self) -> None:
         self.table.jump_top()
@@ -614,6 +623,7 @@ class WeekPlannerTable(DataTable):
         self._current_day = current_day
         self._dirty = False
         self._rebuild_table()
+        self._autosize_columns()
 
     def _rebuild_table(self) -> None:
         self.clear(columns=True)
@@ -631,6 +641,27 @@ class WeekPlannerTable(DataTable):
             self._day_row_keys[day] = row_key
         if self.row_count:
             self.cursor_coordinate = (0, 0)
+        self._autosize_columns()
+
+    def _autosize_columns(self) -> None:
+        day_values = [f"{('▶' if day == self._current_day else ' ')} {day.capitalize()}" for day in self.day_order]
+        template_values = [self.assignments.get(day, "") for day in self.day_order]
+        day_width = max([len("Day")] + [len(value) for value in day_values])
+        template_width = max([len("Template")] + [len(value) for value in template_values])
+        column_widths = {0: day_width + 1, 1: template_width + 1}
+        for index, width in column_widths.items():
+            try:
+                if hasattr(self, "set_column_width"):
+                    self.set_column_width(index, width)
+                elif hasattr(self, "update_column"):
+                    self.update_column(index, width=width)
+                elif hasattr(self, "columns"):
+                    try:
+                        self.columns[index].width = width
+                    except Exception:
+                        pass
+            except Exception:
+                pass
 
     def _current_day_key(self) -> str | None:
         if self.cursor_row is None:
@@ -660,12 +691,17 @@ class WeekPlannerTable(DataTable):
         if row_key is None or column_key is None:
             if self.cursor_row is not None:
                 self.update_cell_at(self.cursor_row, 1, value)
+            self._autosize_columns()
             return
         try:
             self.update_cell(row_key, column_key, value)
         except Exception:
             if self.cursor_row is not None:
                 self.update_cell_at(self.cursor_row, 1, value)
+        self._autosize_columns()
+
+    def on_resize(self) -> None:  # type: ignore[override]
+        self._autosize_columns()
 
     def _mark_dirty(self) -> None:
         self._dirty = True
@@ -814,6 +850,9 @@ class MunazzimApp(App):
         super().__init__()
         self.config_manager = ConfigManager()
         self.config = self.config_manager.load()
+        self._config_errors = self.config_manager.errors()
+        self._config_errors_shown = False
+        self._force_fallback_template = False
         self.templates = TemplateRepository(self.config.planner.template_dir)
         names = self.templates.template_names()
         self.week_assignments = dict(self.config.planner.week_templates)
@@ -1074,25 +1113,51 @@ class MunazzimApp(App):
             return
         self._is_refreshing = True
         try:
+            if self._config_errors and not self._config_errors_shown:
+                self._config_errors_shown = True
+                self._display_sync_errors("Config Error", self._config_errors)
             self.week_panel.commit_if_dirty()
             self.current_date = date.today()
             current_day_key = self._weekday_key(self.current_date)
             if self._show_template_error_if_any():
                 self.week_panel.set_data(self.week_assignments, self.templates.template_names(), current_day_key)
-                return
             names = self.templates.template_names()
             self.week_panel.set_data(self.week_assignments, names, current_day_key)
-            if not names:
+            using_fallback = False
+            if self._force_fallback_template:
+                from ..models import DayTemplate
+                template = DayTemplate(
+                    name="Fallback",
+                    start_time=self.config.planner.day_start,
+                    events=[],
+                    description="",
+                )
+                using_fallback = True
+                self._force_fallback_template = False
+            elif not names:
                 self._show_template_setup_hint()
-                return
-            if self.active_template_name not in names:
-                self.active_template_name = self._resolve_template_name(self.current_date, names)
-            template = self.templates.get(self.active_template_name)
+                # In headless/test contexts, continue with a fallback template
+                # so refresh_plan can still populate the plan/todo views.
+                from ..models import DayTemplate
+                template = DayTemplate(
+                    name="Fallback",
+                    start_time=self.config.planner.day_start,
+                    events=[],
+                    description="",
+                )
+                using_fallback = True
+            else:
+                if self.active_template_name not in names:
+                    self.active_template_name = self._resolve_template_name(self.current_date, names)
+                template = self.templates.get(self.active_template_name)
             template = self.task_engine.annotate_template(template)
             today = self.current_date
             try:
                 prayer_schedule = self.prayer_service.get_schedule(today)
-                TemplateValidator.validate(template, prayer_schedule)
+                if not using_fallback:
+                    warnings = TemplateValidator.validate(template, prayer_schedule)
+                    if warnings:
+                        self._display_warning("Template warning", warnings)
                 plan = self.scheduler.build_plan(
                     template,
                     plan_date=today,
@@ -1100,7 +1165,18 @@ class MunazzimApp(App):
                 )
             except TemplateValidationError as exc:
                 self._display_error("Template validation failed", str(exc))
-                return
+                from ..models import DayTemplate
+                fallback = DayTemplate(
+                    name="Fallback",
+                    start_time=self.config.planner.day_start,
+                    events=[],
+                    description="",
+                )
+                plan = self.scheduler.build_plan(
+                    fallback,
+                    plan_date=today,
+                    prayer_schedule=prayer_schedule,
+                )
             except Exception as exc:  # pragma: no cover - UI safeguard
                 self._display_error("Failed to refresh plan", str(exc))
                 return
@@ -1203,7 +1279,7 @@ class MunazzimApp(App):
                             # Kick off an async refresh in background to update
                             # cached entries without blocking UI.
                             try:
-                                self._schedule_tasklist_refresh(list_id)
+                                self._schedule_tasklist_refresh(list_id, allow_sync=False)
                             except Exception:
                                 pass
                         # Find a human-friendly name for the list (title) so we can
@@ -1339,6 +1415,8 @@ class MunazzimApp(App):
 
     def action_refresh(self) -> None:
         self.config = self.config_manager.load()
+        self._config_errors = self.config_manager.errors()
+        self._config_errors_shown = False
         self.week_assignments = dict(self.config.planner.week_templates)
         self.templates.reload()
         self.task_engine.refresh()
@@ -1379,6 +1457,41 @@ class MunazzimApp(App):
                 self.plan_table.add_row("--", "--", detail, "--")
         # Status bar always shows a short error for visibility
         self.status_line.update(f"[red]{prefix}: {detail}[/red]")
+
+    def _display_warning(self, prefix: str, detail: str | list[str]) -> None:
+        try:
+            self.push_screen(WarningScreen(prefix, detail), self._on_template_warning_action)
+        except Exception:
+            if self.plan_table:
+                self.plan_table.clear()
+                if isinstance(detail, list):
+                    self.plan_table.add_row("--", "--", "\n\n".join(detail), "--")
+                else:
+                    self.plan_table.add_row("--", "--", detail, "--")
+        if isinstance(detail, list):
+            summary = f"{len(detail)} warning(s)"
+        else:
+            summary = detail
+        self.status_line.update(f"[yellow]{prefix}: {summary}[/yellow]")
+
+    def _on_template_warning_action(self, result: str | None) -> None:
+        if not result:
+            return
+        if result == "quit":
+            try:
+                self.exit()
+            except Exception:
+                return
+            return
+        if result == "reload":
+            self.action_refresh()
+            return
+        if result == "skip":
+            self._force_fallback_template = True
+            self.refresh_plan()
+            return
+        if result == "edit":
+            self.action_edit_plan()
 
     def _display_sync_errors(self, prefix: str, errors: list[str]) -> None:
         """Display a list of sync errors as a modal; fallback to plan area and status line.
@@ -1526,15 +1639,15 @@ class MunazzimApp(App):
             # If we have a matching Google Tasks list for this event, select it
             # If user moved recently, avoid doing heavy refreshes here.
             import time
-            if self._last_user_navigation is not None and time.time() - self._last_user_navigation < self._auto_highlight_suppress_secs:
-                # Show cached tasks if available and return quickly
-                if event_name and self.google_tasks_service:
-                    cached = self._get_cached_tasks_for_event(event_name)
-                    if cached is not None:
-                        self.week_panel.set_todos(cached)
-                        return
-                # No cached data - fall back to light refresh_plan that doesn't block
-                return
+            recently_navigated = (
+                self._last_user_navigation is not None
+                and time.time() - self._last_user_navigation < self._auto_highlight_suppress_secs
+            )
+            if event_name and self.google_tasks_service:
+                cached = self._get_cached_tasks_for_event(event_name)
+                if cached is not None:
+                    self.week_panel.set_todos(cached)
+                    return
 
             if event_name and self.google_tasks_service and not getattr(self, "_selected_list_locked", None):
                 try:
@@ -1552,8 +1665,11 @@ class MunazzimApp(App):
                             # Use cached tasks where possible, don't block UI.
                             g_tasks = self._get_cached_tasks(match.id)
                             if g_tasks is None:
-                                # schedule background refresh and return any cached todos later
-                                self._schedule_tasklist_refresh(match.id, None)
+                                # schedule refresh; allow sync in headless contexts
+                                self._schedule_tasklist_refresh(match.id, None, allow_sync=True)
+                                return
+                            if not g_tasks:
+                                self.week_panel.set_todos([])
                                 return
                             # otherwise we have immediate results
                             # Build a map of event name -> scheduled start time
@@ -1605,10 +1721,16 @@ class MunazzimApp(App):
                             # If any network error occurs, fall through to a full
                             # refresh so the user sees the best-effort view.
                             pass
+                    else:
+                        # No matching list for this event: show empty view.
+                        self.week_panel.set_todos([])
+                        return
                 except Exception:
                     # Ignore API errors and fallback to refresh
                     pass
             # Default behavior: refresh the plan (which will update the todo box)
+            if recently_navigated:
+                return
             self.refresh_plan()
         except Exception:
             # Never raise from cursor movement
@@ -1847,10 +1969,19 @@ class MunazzimApp(App):
             return
         self._google_tasks_cache.pop(list_id, None)
 
-    def _schedule_tasklist_refresh(self, list_id: str, event_start_map: dict[str, datetime] | None = None) -> None:
+    def _schedule_tasklist_refresh(
+        self,
+        list_id: str,
+        event_start_map: dict[str, datetime] | None = None,
+        *,
+        allow_sync: bool = True,
+    ) -> None:
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
+            if not allow_sync:
+                # No running loop; avoid blocking synchronous refresh.
+                return
             # No running loop - refresh synchronously
             try:
                 tasks = self.google_tasks_service.list_tasks(list_id)

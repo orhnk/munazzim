@@ -6,7 +6,7 @@ import ast
 import re
 from typing import Iterable, Sequence
 
-from .models import DayTemplate, Event, FixedEvent, PrayerEvent, Task
+from .models import DayTemplate, Event, FixedEvent, PrayerEvent, PrayerBoundEvent, Task
 from .timeutils import format_duration, format_hhmm, parse_hhmm
 
 
@@ -16,10 +16,45 @@ class QalibParseError(RuntimeError):
 
 _DURATION_TOKEN = re.compile(r"^(?:\d+(?::\d{2})?|\d+\.\d{1,2}|\.\d{1,2})$")
 _TIME_TOKEN = re.compile(r"^\d{1,2}[:.]\d{2}$")
+_PRAYER_OFFSET_TOKEN = re.compile(r"^(?P<prayer>[A-Za-z]+)(?P<sign>[+-])(?P<minutes>\d{1,3})$")
+_PRAYER_ALIASES = {
+    "fajr": "fajr",
+    "dhuhr": "dhuhr",
+    "duhr": "dhuhr",
+    "asr": "asr",
+    "maghrib": "maghrib",
+    "isha": "isha",
+}
 
 
 def _is_time_token(token: str) -> bool:
     return bool(_TIME_TOKEN.match(token.strip()))
+
+
+def _is_prayer_token(token: str) -> bool:
+    return token.strip().lower() in _PRAYER_ALIASES
+
+
+def _normalize_prayer_token(token: str) -> str:
+    normalized = _PRAYER_ALIASES.get(token.strip().lower(), token.strip().lower())
+    return normalized.title()
+
+
+def _parse_time_or_prayer(token: str) -> time | str | None:
+    cleaned = token.strip()
+    if not cleaned:
+        return None
+    if _is_time_token(cleaned):
+        return parse_hhmm(cleaned)
+    offset_match = _PRAYER_OFFSET_TOKEN.match(cleaned)
+    if offset_match:
+        prayer = _normalize_prayer_token(offset_match.group("prayer"))
+        sign = offset_match.group("sign")
+        minutes = offset_match.group("minutes")
+        return f"{prayer}{sign}{minutes}"
+    if _is_prayer_token(cleaned):
+        return _normalize_prayer_token(cleaned)
+    raise QalibParseError(f"Unsupported time/prayer token '{token}'")
 
 
 def _strip_inline_comment(value: str) -> str:
@@ -148,6 +183,15 @@ class _TemplateBuilder:
         if len(tokens) >= 2 and _is_time_token(tokens[0]) and _is_time_token(tokens[1]):
             self._add_fixed_event(tokens, lineno)
             return
+        if len(tokens) >= 2 and _is_time_token(tokens[0]) and tokens[1].startswith("+"):
+            self._add_fixed_duration_event(tokens, lineno)
+            return
+        if len(tokens) >= 2 and _is_prayer_token(tokens[0]) and tokens[1].startswith("+"):
+            self._add_prayer_duration_event(tokens, lineno)
+            return
+        if tokens and ".." in tokens[0]:
+            self._add_prayer_range_event(tokens, lineno)
+            return
         if self.start_time is None and len(tokens) == 1 and _is_time_token(tokens[0]):
             self.start_time = parse_hhmm(tokens[0])
             return
@@ -175,8 +219,14 @@ class _TemplateBuilder:
         # If the name is a prayer (Fajr/Dhuhr/Asr/Maghrib/Isha), create a PrayerEvent
         lower_name = name.strip().lower()
         first_word = lower_name.split()[0] if lower_name else ""
-        if first_word in {"fajr", "dhuhr", "asr", "maghrib", "isha"}:
-            event = PrayerEvent(name=name, prayer=first_word.title(), duration=duration, flexible=False, anchor=None)
+        if _is_prayer_token(first_word):
+            event = PrayerEvent(
+                name=name,
+                prayer=_normalize_prayer_token(first_word),
+                duration=duration,
+                flexible=False,
+                anchor=None,
+            )
         else:
             event = Event(name=name, duration=duration)
         self.events.append(event)
@@ -192,8 +242,75 @@ class _TemplateBuilder:
         # scheduler uses the prayer schedule. Duration is preserved.
         lower_name = name.strip().lower()
         first_word = lower_name.split()[0] if lower_name else ""
-        if first_word in {"fajr", "dhuhr", "asr", "maghrib", "isha"}:
+        if _is_prayer_token(first_word):
             # Create a PrayerEvent with the parsed duration and anchor
+            event = PrayerEvent(
+                name=name,
+                prayer=_normalize_prayer_token(first_word),
+                duration=duration,
+                flexible=False,
+                anchor=start,
+            )
+        else:
+            event = FixedEvent(name=name, duration=duration, anchor=start, flexible=False)
+        self.events.append(event)
+        self._current_event = event
+        self._block_counter += 1
+
+    def _add_prayer_duration_event(self, tokens: Sequence[str], lineno: int) -> None:
+        prayer_token = tokens[0]
+        duration_token = tokens[1][1:].strip()
+        if not duration_token or not _DURATION_TOKEN.match(duration_token):
+            raise QalibParseError(
+                f"Line {lineno}: '{tokens[1]}' is not a duration"
+            )
+        duration = _duration_token_to_timedelta(duration_token)
+        remaining = " ".join(tokens[2:]).strip()
+        name = remaining or f"Thabbat {self._block_counter}"
+        event = PrayerBoundEvent(
+            name=name,
+            duration=duration,
+            flexible=False,
+            start_ref=_normalize_prayer_token(prayer_token),
+            end_ref=None,
+        )
+        self.events.append(event)
+        self._current_event = event
+        self._block_counter += 1
+
+    def _add_prayer_range_event(self, tokens: Sequence[str], lineno: int) -> None:
+        range_token = tokens[0]
+        start_token, end_token = range_token.split("..", 1)
+        start_ref = _parse_time_or_prayer(start_token)
+        end_ref = _parse_time_or_prayer(end_token)
+        if end_ref is None:
+            raise QalibParseError(f"Line {lineno}: missing end bound in '{range_token}'")
+        remaining = " ".join(tokens[1:]).strip()
+        name = remaining or f"Thabbat {self._block_counter}"
+        event = PrayerBoundEvent(
+            name=name,
+            duration=timedelta(0),
+            flexible=False,
+            start_ref=start_ref,
+            end_ref=end_ref,
+        )
+        self.events.append(event)
+        self._current_event = event
+        self._block_counter += 1
+
+    def _add_fixed_duration_event(self, tokens: Sequence[str], lineno: int) -> None:
+        start = parse_hhmm(tokens[0])
+        duration_token = tokens[1][1:].strip()
+        if not duration_token or not _DURATION_TOKEN.match(duration_token):
+            raise QalibParseError(
+                f"Line {lineno}: '{tokens[1]}' is not a duration"
+            )
+        duration = _duration_token_to_timedelta(duration_token)
+        remaining = " ".join(tokens[2:]).strip()
+        name = remaining or f"Thabbat {self._block_counter}"
+        lower_name = name.strip().lower()
+        first_word = lower_name.split()[0] if lower_name else ""
+        if first_word in {"fajr", "dhuhr", "asr", "maghrib", "isha"}:
             event = PrayerEvent(
                 name=name,
                 prayer=first_word.title(),
@@ -262,6 +379,8 @@ class QalibSerializer:
                 lines.append(
                     f"{format_hhmm(event.anchor)} {format_hhmm(end_time)} {event.name}".rstrip()
                 )
+            elif isinstance(event, PrayerBoundEvent):
+                lines.append(self._format_prayer_bound_event(event).rstrip())
             else:
                 lines.append(f"{_format_duration_token(event.duration)} {event.name}".rstrip())
             for task in event.tasks:
@@ -287,6 +406,21 @@ class QalibSerializer:
         if task.note:
             body = f"{body} :: {task.note}"
         return f"{prefix} {body}".rstrip()
+
+    def _format_prayer_bound_event(self, event: PrayerBoundEvent) -> str:
+        def _fmt_ref(value: time | str | None) -> str:
+            if value is None:
+                return ""
+            if isinstance(value, time):
+                return format_hhmm(value)
+            return str(value)
+
+        if event.end_ref is not None:
+            start_text = _fmt_ref(event.start_ref)
+            end_text = _fmt_ref(event.end_ref)
+            return f"{start_text}..{end_text} {event.name}".strip()
+        start_text = _fmt_ref(event.start_ref)
+        return f"{start_text} +{_format_duration_token(event.duration)} {event.name}".strip()
 
 
 def render_template(template: DayTemplate) -> str:
