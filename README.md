@@ -209,7 +209,7 @@ The repository now includes the original MVP foundation plus the Phase 2 prayer-
 - **Time engine** – Duration parsing plus a scheduler that splits events around the five daily prayers and respects fixed-time blocks.
 - **Prayer services** – Geolocation-aware fetchers for Aladhan and the Vakit (Diyanet) API with on-disk caching and configurable calculation methods.
 - **Validation** – Wake-time and Thabbat overlap checks with friendly error feedback inside the TUI status line.
-- **Textual TUI** – Header, richer status line (template/provider/location/to-plan), plan table, template picker modal, week planner, and direct `$EDITOR` shortcuts for editing qalibs alongside refresh/switch keybindings.
+- **Textual TUI** – Header, richer status line (template/provider/location/to-plan), plan table, week planner, and direct `$EDITOR` shortcuts for editing qalibs alongside refresh/switch keybindings.
 
 ## Repository Layout
 
@@ -242,11 +242,10 @@ nix run
 nix develop
 ```
 
-Key bindings now include `q` (quit), `r` (regenerate plan and reload config/templates), `n/p` or `l/h` (cycle templates for the selected weekday), `j/k` plus `gg`/`G` (Vim-style navigation of rows in the schedule and week planner), `t` (open the template picker modal), `w` (focus the inline week planner panel), `f` (toggle the main pane between today's schedule and the aggregated Tasks table), `e` (open the active qalib in your `$EDITOR`), and `a` (launch your `$EDITOR` inside `~/.config/munazzim/alqawalib/` for new qalib files). Once the Tasks table is visible you can press `Enter` (or space) to mark the highlighted checklist item complete; the status line mirrors the active template, provider, location, "TO PLAN" minutes, and the current date/state.
+Key bindings now include `q` (quit), `r` (regenerate plan and reload config/templates), `j/k` plus `g`/`G` (Vim-style navigation of rows in the schedule and week planner), `w` (focus the inline week planner panel), `e` (open the active qalib in your `$EDITOR`), and `a` (launch your `$EDITOR` inside `~/.config/munazzim/alqawalib/` for new qalib files). Press `Enter` on a plan row to open (and create if needed) the matching Google Tasks list; once the Tasks table is visible you can press `Enter` (or space) to mark the highlighted checklist item complete; the status line mirrors the active template, provider, location, "TO PLAN" minutes, and the current date/state.
 
-- **Template Picker (`t`)** shows every TOML/qalib template (name + description). Selecting one immediately switches the active template and persists it for the current weekday inside `[planner.week_templates]`.
-- **Inline Week Planner (`w` to focus)** lives in the right-hand panel. Use `h/l` (or arrow keys) to change the template for the highlighted day, `j/k` to move, `Delete` to clear, and `gg` / `G` to jump to the start/end. Changes are auto-saved when the panel loses focus, so there is no separate modal or save key anymore.
-- **Main Screen Layout** – The default view splits into two panels: the left side shows today's schedule with the on-going event highlighted automatically, while the right side hosts the weekly template summary (showing which qalib is assigned to each weekday with today's marked). Press `f` any time to flip the left pane into the interactive Tasks table—this aggregates every task attached to today's plan, shows the live `done/total` counter, and lets you mark items complete directly from the keyboard (`Enter`/space). Press `f` again to jump back to the schedule.
+- **Inline Week Planner (`w` to focus)** lives in the right-hand panel. Use `h/l` (or arrow keys) to change the template for the highlighted day, `j/k` to move, `Delete` to clear, and `g` / `G` to jump to the start/end. Changes are auto-saved when the panel loses focus, so there is no separate modal or save key anymore.
+- **Main Screen Layout** – The default view splits into two panels: the left side shows today's schedule with the on-going event highlighted automatically, while the right side hosts the weekly template summary (showing which qalib is assigned to each weekday with today's marked). Press `Enter` on a plan row to open the interactive Tasks table for that event—this aggregates every task attached to the list, shows the live `done/total` counter, and lets you mark items complete directly from the keyboard (`Enter`/space).
 
 ### Template Authoring Shortcut
 - Press `a` anywhere in the TUI to open `$EDITOR` (or `$VISUAL`, falling back to a detected editor) with the working directory set to `~/.config/munazzim/alqawalib/`. Munazzim suspends the Textual UI so your editor receives the full terminal; when you exit, it resumes, reloads the directory, and your new qalib/TOML files appear instantly in the pickers.
