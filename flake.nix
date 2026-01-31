@@ -37,14 +37,14 @@
             set -euo pipefail
 
             detect_terminal() {
-              if [ -n $TERMINAL ] && command -v $TERMINAL >/dev/null 2>&1; then
-                echo $TERMINAL
+              if [ -n "''${TERMINAL-}" ] && command -v "''${TERMINAL}" >/dev/null 2>&1; then
+                echo "''${TERMINAL}"
                 return 0
               fi
 
               for term in x-terminal-emulator gnome-terminal konsole alacritty kitty foot wezterm xterm; do
-                if command -v "${term}" >/dev/null 2>&1; then
-                  echo "${term}"
+                if command -v "''${term}" >/dev/null 2>&1; then
+                  echo "''${term}"
                   return 0
                 fi
               done
@@ -57,18 +57,18 @@
             }
 
             if term="$(detect_terminal)"; then
-              case "${term}" in
+              case "''${term}" in
                 gnome-terminal)
-                  exec "${term}" -- "${munazzimApp}/bin/munazzim"
+                  exec "''${term}" -- "${munazzimApp}/bin/munazzim"
                   ;;
                 konsole)
-                  exec "${term}" -e "${munazzimApp}/bin/munazzim"
+                  exec "''${term}" -e "${munazzimApp}/bin/munazzim"
                   ;;
                 wezterm)
-                  exec "${term}" start -- "${munazzimApp}/bin/munazzim"
+                  exec "''${term}" start -- "${munazzimApp}/bin/munazzim"
                   ;;
                 *)
-                  exec "${term}" -e "${munazzimApp}/bin/munazzim"
+                  exec "''${term}" -e "${munazzimApp}/bin/munazzim"
                   ;;
               esac
             else
