@@ -37,8 +37,8 @@
             set -euo pipefail
 
             detect_terminal() {
-              if [ -n "${TERMINAL}" ] && command -v "${TERMINAL}" >/dev/null 2>&1; then
-                echo "${TERMINAL}"
+              if [ -n $TERMINAL ] && command -v $TERMINAL >/dev/null 2>&1; then
+                echo $TERMINAL
                 return 0
               fi
 
