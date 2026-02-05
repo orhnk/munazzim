@@ -152,6 +152,8 @@ class _TemplateBuilder:
         self.description = ""
         self.start_time: time | None = None
         self.events: list[Event] = []
+        self.prayer_durations: dict[str, str] = {}
+        self.prayer_overrides: dict[str, str] = {}
         self._current_event: Event | None = None
         self._block_counter = 1
 
@@ -159,15 +161,28 @@ class _TemplateBuilder:
         stripped = line.strip()
         if not stripped:
             return
-        lower = stripped.lower()
-        if lower.startswith("name:") or lower.startswith("# name:"):
-            self.name = stripped.split(":", 1)[1].strip()
+        header = stripped
+        if header.startswith("#"):
+            header = header[1:].strip()
+        lower = header.lower()
+        if lower.startswith("name:"):
+            self.name = header.split(":", 1)[1].strip()
             return
-        if lower.startswith("description:") or lower.startswith("# description:"):
-            detail = stripped.split(":", 1)[1].strip()
+        if lower.startswith("description:"):
+            detail = header.split(":", 1)[1].strip()
             if self.description:
                 self.description += " "
             self.description += detail
+            return
+        if lower.startswith("prayer_durations."):
+            self._consume_prayer_setting(
+                header, lineno, target="durations"
+            )
+            return
+        if lower.startswith("prayer_overrides."):
+            self._consume_prayer_setting(
+                header, lineno, target="overrides"
+            )
             return
         if stripped.startswith("#"):
             return
@@ -205,7 +220,26 @@ class _TemplateBuilder:
             start_time=self.start_time,
             events=self.events,
             description=self.description.strip(),
+            prayer_durations=self.prayer_durations,
+            prayer_overrides=self.prayer_overrides,
         )
+
+    def _consume_prayer_setting(self, header: str, lineno: int, *, target: str) -> None:
+        if ":" not in header:
+            raise QalibParseError(f"Line {lineno}: missing ':' in '{header}'")
+        key_part, value = header.split(":", 1)
+        value = value.strip()
+        _, prayer_key = key_part.split(".", 1)
+        prayer_key = prayer_key.strip().lower()
+        prayer_key = _PRAYER_ALIASES.get(prayer_key, prayer_key)
+        if prayer_key not in {"fajr", "dhuhr", "asr", "maghrib", "isha"}:
+            raise QalibParseError(f"Line {lineno}: unsupported prayer '{prayer_key}'")
+        if not value:
+            return
+        if target == "durations":
+            self.prayer_durations[prayer_key] = value
+        else:
+            self.prayer_overrides[prayer_key] = value
 
     def _add_relative_event(self, tokens: Sequence[str], content: str, lineno: int) -> None:
         if not tokens:
@@ -372,6 +406,16 @@ class QalibSerializer:
         lines: list[str] = [f"# name: {template.name}"]
         if template.description:
             lines.append(f"# description: {template.description}")
+        if template.prayer_durations:
+            for prayer in ["fajr", "dhuhr", "asr", "maghrib", "isha"]:
+                value = template.prayer_durations.get(prayer)
+                if value:
+                    lines.append(f"# prayer_durations.{prayer}: {value}")
+        if template.prayer_overrides:
+            for prayer in ["fajr", "dhuhr", "asr", "maghrib", "isha"]:
+                value = template.prayer_overrides.get(prayer)
+                if value:
+                    lines.append(f"# prayer_overrides.{prayer}: {value}")
         lines.append(format_hhmm(template.start_time))
         for event in template.events:
             if isinstance(event, FixedEvent):

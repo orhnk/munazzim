@@ -259,6 +259,7 @@ Key bindings now include `q` (quit), `r` (regenerate plan and reload config/temp
 city = "Istanbul"
 country = "Türkiye"
 use_geolocation = true        # auto-detect via ipapi.co when available
+persist_geolocation = false   # write detected location back to config.toml
 timezone = "Europe/Istanbul"  # fallback when geolocation is disabled
 
 [prayer_settings]
@@ -275,7 +276,7 @@ maghrib = "0:20"
 isha = "0:20"
 ```
 
-- When `use_geolocation` is `true`, Munazzim hits `https://ipapi.co/json/` on startup to resolve latitude/longitude/timezone automatically. The detected values stay in memory (and future runs will detect again), so your `config.toml` remains entirely user-managed. If geolocation is disabled, Munazzim falls back to the manual `location` fields.
+- When `use_geolocation` is `true`, Munazzim hits `https://ipapi.co/json/` on startup to resolve latitude/longitude/timezone automatically. By default the detected values stay in memory (and future runs will detect again), so your `config.toml` remains entirely user-managed. Set `persist_geolocation = true` to write the detected location back into `config.toml`. If geolocation is disabled, Munazzim falls back to the manual `location` fields.
 - Provider options: `aladhan` (default, global API), `praytimes` (offline via the PrayTimes library), and `vakit` (Diyanet-aligned, via `https://vakit.vercel.app/api/timesForGPS`).
 - Prayer times fetched from providers are cached under `~/.cache/munazzim/prayer_times.json`. Each day gets its own entry, and Munazzim keeps up to `cache_days` of day-specific responses (90 by default, roughly three months). When the app successfully reaches a provider it immediately spins up a background prefetch that grabs the remaining days in that window so you can stay offline afterward. Cache persistence happens asynchronously so rendering the TUI isn't blocked, and the application never rewrites your config file just to store timings.
 - Prayer durations are respected by the scheduler and shown in the status line; editing them controls how much of the day remains "plannable".

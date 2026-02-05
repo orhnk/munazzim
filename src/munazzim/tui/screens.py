@@ -33,9 +33,9 @@ class TemplatePickerScreen(ModalScreen[str | None]):
         Binding("escape", "cancel", "Cancel"),
         Binding("j", "cursor_down", "Next", show=False),
         Binding("k", "cursor_up", "Previous", show=False),
-        Binding("g", "cursor_top", "Top", show=False),
-        Binding("G", "cursor_bottom", "Bottom", show=False),
-        Binding("a", "new_template", "New Template"),
+    Binding("g", "cursor_top", "Top", show=False),
+    Binding("G", "cursor_bottom", "Bottom", show=False),
+    Binding("a", "new_template", "New Template"),
     ]
 
     def __init__(self, templates: Sequence[TemplateChoice]) -> None:
@@ -58,7 +58,7 @@ class TemplatePickerScreen(ModalScreen[str | None]):
             items.append(ListItem(body, id=safe_id))
         self.list_view = ListView(*items, id="template-picker-list")
         help_text = Static(
-            "Enter = Select • Esc = Cancel • j/k move • g/G start/end",
+            "Enter = Select • Esc = Cancel • j/k move • gg/G start/end",
             classes="dialog-help",
         )
         yield Vertical(title, self.list_view, help_text, id="template-picker")
@@ -79,14 +79,6 @@ class TemplatePickerScreen(ModalScreen[str | None]):
             except Exception:
                 pass
 
-    def action_cursor_top(self) -> None:
-        if self.list_view and self.list_view.children:
-            self.list_view.index = 0
-
-    def action_cursor_bottom(self) -> None:
-        if self.list_view and self.list_view.children:
-            self.list_view.index = len(self.list_view.children) - 1
-
 
 class TaskListPickerScreen(ModalScreen[str | None]):
     """Modal list for selecting a Google task list (or other task provider)."""
@@ -95,8 +87,6 @@ class TaskListPickerScreen(ModalScreen[str | None]):
         Binding("escape", "cancel", "Cancel"),
         Binding("j", "cursor_down", "Next", show=False),
         Binding("k", "cursor_up", "Previous", show=False),
-        Binding("g", "cursor_top", "Top", show=False),
-        Binding("G", "cursor_bottom", "Bottom", show=False),
     ]
 
     def __init__(self, lists: Iterable[TaskListChoice]) -> None:
@@ -115,7 +105,7 @@ class TaskListPickerScreen(ModalScreen[str | None]):
             self._id_to_list[safe_id] = choice.id
             items.append(ListItem(body, id=safe_id))
         self.list_view = ListView(*items, id="task-list-picker-list")
-        help_text = Static("Enter = Select • Esc = Cancel • j/k move • g/G start/end", classes="dialog-help")
+        help_text = Static("Enter = Select • Esc = Cancel • j/k move", classes="dialog-help")
         yield Vertical(title, self.list_view, help_text, id="task-list-picker")
 
     def on_mount(self) -> None:
@@ -130,14 +120,6 @@ class TaskListPickerScreen(ModalScreen[str | None]):
 
     def action_cancel(self) -> None:
         self.dismiss(None)
-
-    def action_cursor_top(self) -> None:
-        if self.list_view and self.list_view.children:
-            self.list_view.index = 0
-
-    def action_cursor_bottom(self) -> None:
-        if self.list_view and self.list_view.children:
-            self.list_view.index = len(self.list_view.children) - 1
 
 
 class TextEntryScreen(ModalScreen[str | None]):
@@ -397,7 +379,7 @@ class WeekPlannerScreen(Screen[dict[str, str] | None]):
         Binding("h", "previous_template", "Previous Template", show=False),
         Binding("j", "cursor_down", "Next Day", show=False),
         Binding("k", "cursor_up", "Previous Day", show=False),
-        Binding("g", "cursor_top", "First Day", show=False),
+    Binding("g", "cursor_top", "First Day", show=False),
         Binding("G", "cursor_bottom", "Last Day", show=False),
     ]
 
@@ -435,7 +417,7 @@ class WeekPlannerScreen(Screen[dict[str, str] | None]):
         if self.day_order:
             self.table.cursor_coordinate = (0, 0)
         help_text = Static(
-            "←/→ or h/l change template • j/k move • g/G jump • Delete clear • S save • Esc cancel",
+            "←/→ or h/l change template • j/k move • gg/G jump • Delete clear • S save • Esc cancel",
             classes="dialog-help",
         )
         yield Vertical(Static("Weekly Template Planner", classes="dialog-title"), self.table, help_text)

@@ -4,7 +4,7 @@ from dataclasses import dataclass, replace
 from datetime import date, datetime, time as time_type, timedelta
 import re
 
-from .config import MunazzimConfig, PrayerSchedule, PrayerDurations
+from .config import MunazzimConfig, PrayerSchedule, PrayerDurations, PrayerOverrides
 from typing import Any
 from .models import DayPlan, DayTemplate, Event, FixedEvent, PrayerBoundEvent, PrayerEvent, ScheduledEvent
 from .timeutils import TimeCursor
@@ -41,9 +41,21 @@ class Scheduler:
                 schedule = None
         if schedule is None:
             schedule = self.config.prayers
+        template_overrides = getattr(template, "prayer_overrides", None) or {}
+        if template_overrides:
+            overrides = PrayerOverrides.from_dict(template_overrides)
+            if not overrides.is_empty():
+                schedule = self._apply_overrides(schedule, overrides)
         durations = getattr(self.config.prayer_settings, "durations", None)
         if durations is None:  # pragma: no cover - legacy configs
             durations = PrayerDurations()
+        template_durations = getattr(template, "prayer_durations", None) or {}
+        if template_durations:
+            merged = durations.to_dict()
+            for key, value in template_durations.items():
+                if value:
+                    merged[key] = value
+            durations = PrayerDurations.from_dict(merged)
         prayer_slots = self._prayer_slots(cursor.anchor_date, schedule, durations)
         prayer_index = 0
 
@@ -140,6 +152,41 @@ class Scheduler:
             schedule_prayer(slot)
 
         return plan
+
+    @staticmethod
+    def _apply_overrides(schedule: PrayerSchedule, overrides: PrayerOverrides) -> PrayerSchedule:
+        def _resolve_override(value, fallback):
+            if value is None:
+                return fallback
+            if isinstance(value, time_type):
+                return value
+            rel = value
+            base = rel.base.lower()
+            base_map = {
+                "dhuhr": "dhuhr",
+                "fajr": "fajr",
+                "asr": "asr",
+                "maghrib": "maghrib",
+                "isha": "isha",
+                "sunrise": "sunrise",
+            }
+            base_key = base_map.get(base)
+            if not base_key:
+                return fallback
+            base_time = getattr(schedule, base_key, None)
+            if base_time is None:
+                return fallback
+            dt = datetime.combine(date.today(), base_time) + timedelta(minutes=rel.minutes)
+            return dt.time()
+
+        return PrayerSchedule(
+            fajr=_resolve_override(overrides.fajr, schedule.fajr),
+            dhuhr=_resolve_override(overrides.dhuhr, schedule.dhuhr),
+            asr=_resolve_override(overrides.asr, schedule.asr),
+            maghrib=_resolve_override(overrides.maghrib, schedule.maghrib),
+            isha=_resolve_override(overrides.isha, schedule.isha),
+            sunrise=schedule.sunrise,
+        )
 
     def _schedule_event(
         self,

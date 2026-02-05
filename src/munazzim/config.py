@@ -27,10 +27,14 @@ def _maybe_parse_time(value: str | None) -> time | None:
 class LocationSettings:
     city: str = ""
     country: str = ""
+    state: str = ""
+    district: str = ""
+    district_id: str | None = None
     latitude: float | None = None
     longitude: float | None = None
     timezone: str | None = None
     use_geolocation: bool = True
+    persist_geolocation: bool = False
 
 
 @dataclass(slots=True)
@@ -211,10 +215,14 @@ class MunazzimConfig:
             "location": {
                 "city": self.location.city,
                 "country": self.location.country,
+                "state": self.location.state,
+                "district": self.location.district,
+                "district_id": self.location.district_id,
                 "latitude": self.location.latitude,
                 "longitude": self.location.longitude,
                 "timezone": self.location.timezone,
                 "use_geolocation": self.location.use_geolocation,
+                "persist_geolocation": self.location.persist_geolocation,
             },
             "planner": {
                 "default_template": self.planner.default_template,
@@ -272,6 +280,11 @@ class ConfigManager:
         def _normalize_day(key: str) -> str:
             return key.strip().lower()
 
+        def _string_or_none(value: object | None) -> str | None:
+            if value in (None, "", "null"):
+                return None
+            return str(value)
+
         template_dir_value = planner_cfg.get("template_dir") or str(_default_template_dir())
         template_dir = Path(template_dir_value).expanduser()
         template_dir.mkdir(parents=True, exist_ok=True)
@@ -298,10 +311,14 @@ class ConfigManager:
             location=LocationSettings(
                 city=location_cfg.get("city", ""),
                 country=location_cfg.get("country", ""),
+                state=location_cfg.get("state", ""),
+                district=location_cfg.get("district", ""),
+                district_id=_string_or_none(location_cfg.get("district_id")),
                 latitude=_float_or_none(location_cfg.get("latitude")),
                 longitude=_float_or_none(location_cfg.get("longitude")),
                 timezone=location_cfg.get("timezone"),
                 use_geolocation=location_cfg.get("use_geolocation", True),
+                persist_geolocation=location_cfg.get("persist_geolocation", False),
             ),
             prayers=prayers,
             planner=PlannerPreferences(
@@ -329,12 +346,17 @@ class ConfigManager:
         lines = ["[location]"]
         lines.append(f"city = \"{data['location']['city']}\"")
         lines.append(f"country = \"{data['location']['country']}\"")
+        lines.append(f"state = \"{data['location']['state']}\"")
+        lines.append(f"district = \"{data['location']['district']}\"")
+        if data["location"]["district_id"]:
+            lines.append(f"district_id = \"{data['location']['district_id']}\"")
         if data["location"]["latitude"] is not None:
             lines.append(f"latitude = {data['location']['latitude']}")
         if data["location"]["longitude"] is not None:
             lines.append(f"longitude = {data['location']['longitude']}")
         lines.append(f"timezone = \"{data['location']['timezone'] or ''}\"")
         lines.append(f"use_geolocation = {str(data['location']['use_geolocation']).lower()}")
+        lines.append(f"persist_geolocation = {str(data['location']['persist_geolocation']).lower()}")
         lines.extend([
             "",
             "[planner]",

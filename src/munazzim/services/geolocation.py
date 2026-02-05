@@ -13,6 +13,9 @@ class GeoLocation:
     city: str
     country: str
     timezone: str
+    state: str = ""
+    district: str = ""
+    district_id: str | None = None
 
     def as_tuple(self) -> tuple[float, float]:
         return self.latitude, self.longitude
@@ -39,6 +42,7 @@ class GeoLocator:
         if lat is None or lon is None or timezone is None:
             return None
         city = data.get("city") or data.get("region") or ""
+        state = data.get("region") or ""
         country = data.get("country_name") or data.get("country") or ""
         try:
             return GeoLocation(
@@ -46,6 +50,9 @@ class GeoLocator:
                 longitude=float(lon),
                 city=str(city),
                 country=str(country),
+                state=str(state),
+                district="",
+                district_id=None,
                 timezone=str(timezone),
             )
         except (TypeError, ValueError):  # pragma: no cover - defensive

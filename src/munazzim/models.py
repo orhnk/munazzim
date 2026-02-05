@@ -59,6 +59,8 @@ class DayTemplate:
     start_time: time
     events: list[Event]
     description: str = ""
+    prayer_durations: dict[str, str] = field(default_factory=dict)
+    prayer_overrides: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(slots=True)

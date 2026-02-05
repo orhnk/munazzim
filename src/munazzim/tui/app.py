@@ -38,6 +38,8 @@ from ..templates import TemplateParseError, TemplateRepository
 from ..timeutils import format_duration
 from ..validation import TemplateValidationError, TemplateValidator
 from .screens import (
+    TemplateChoice,
+    TemplatePickerScreen,
     TemplateErrorScreen,
     ErrorScreen,
     WarningScreen,
@@ -104,13 +106,11 @@ class TaskTableView(DataTable):
         Binding("enter", "complete_selected", "Toggle Task"),
         Binding("space", "complete_selected", "Toggle Task", show=False),
         Binding("s", "select_task_list", "Select Task List"),
-        Binding("a", "add_task", "Add Task"),
+    Binding("a", "add_task", "Add Task"),
         Binding("e", "edit_task", "Edit Task"),
-        Binding("x", "delete_task", "Delete Task", show=False),
-        Binding("d", "delete_task", "Delete Task", show=False),
+    Binding("x", "delete_task", "Delete Task", show=False),
+    Binding("d", "delete_task", "Delete Task", show=False),
         Binding("delete", "delete_task", "Delete Task"),
-        Binding("g", "cursor_top", "First Task", show=False),
-        Binding("G", "cursor_bottom", "Last Task", show=False),
     ]
 
     def __init__(
@@ -166,15 +166,6 @@ class TaskTableView(DataTable):
                 self.app.action_delete_task()
         except Exception:
             return
-
-    def action_cursor_top(self) -> None:
-        if self.row_count:
-            self.cursor_coordinate = (0, self.cursor_column or 0)
-
-    def action_cursor_bottom(self) -> None:
-        if self.row_count:
-            last_row = self.row_count - 1
-            self.cursor_coordinate = (last_row, self.cursor_column or 0)
 
     def on_mount(self) -> None:  # type: ignore[override]
         self._ensure_columns()
@@ -312,6 +303,10 @@ class TaskTableView(DataTable):
             self._on_log(todo.task_id)
 
     def on_key(self, event: events.Key) -> None:  # type: ignore[override]
+        if event.key == "f" and hasattr(self.app, "action_focus_plan"):
+            event.stop()
+            self.app.action_focus_plan()
+            return
         handler = getattr(super(), "on_key", None)
         if handler:
             handler(event)
@@ -380,7 +375,7 @@ class WeekPlannerWidget(Widget):
         except Exception:
             pass
         self._help = Static(
-            "[dim]h/l change • j/k move • g/G jump • delete clear • w focus[/dim]",
+            "[dim]h/l change • j/k move • gg/G jump • delete clear • w focus[/dim]",
             classes="panel-help",
         )
         self.todo_table: TaskTableView | None = None
@@ -447,9 +442,9 @@ class WeekPlannerWidget(Widget):
         return self.todo_table.has_tasks
 
 
-# Previously we used a VimGJumpMixin to support 'gg' (double-g). Textual
-# bindings replaced that; the jump-to-top hook is implemented by the table
-# classes themselves and 'g' is handled through Binding.
+# Previously we used a VimGJumpMixin to support 'gg' (double-g). Jenkins-style
+# Textual bindings replaced that; the jump-to-top hook is implemented by the
+# table classes themselves and 'g' is handled through Binding.
 
 
 class PlanTable(DataTable):
@@ -461,7 +456,6 @@ class PlanTable(DataTable):
         Binding("k", "cursor_up", "Previous Event"),
         Binding("g", "cursor_top", "First Event", show=False),
         Binding("G", "cursor_bottom", "Last Event", show=False),
-        Binding("enter", "open_event_tasks", "Tasks"),
         Binding("up", "cursor_up", "Previous Event"),
         Binding("down", "cursor_down", "Next Event"),
         Binding("home", "cursor_top", "First Event", show=False),
@@ -534,17 +528,6 @@ class PlanTable(DataTable):
     def action_cursor_up(self) -> None:
         self.move_rows(-1)
 
-    def action_cursor_top(self) -> None:
-        self.jump_to_row(0)
-
-    def action_open_event_tasks(self) -> None:
-        """Open tasks for the currently focused event (Enter)."""
-        try:
-            if hasattr(self.app, "action_open_event_tasks"):
-                self.app.action_open_event_tasks()
-        except Exception:
-            return
-
     def action_cursor_bottom(self) -> None:
         self.jump_to_row(self.row_count - 1)
 
@@ -569,12 +552,25 @@ class PlanTable(DataTable):
             return
 
     def on_key(self, event: events.Key) -> None:  # type: ignore[override]
+        if event.key == "f":
+            event.stop()
+            if hasattr(self.app, "action_focus_tasks"):
+                self.app.action_focus_tasks()
+            return
         if event.key in self.BLOCKED_KEYS:
             event.stop()
             return
         handler = getattr(super(), "on_key", None)
         if handler:
             handler(event)
+        # 'd' opens the associated event task file if present
+        if event.key == "d":
+            try:
+                if hasattr(self.app, "action_open_event_tasks"):
+                    event.stop()
+                    self.app.action_open_event_tasks()
+            except Exception:
+                pass
 
     def on_mouse_move(self, event: events.MouseMove) -> None:  # type: ignore[override]
         event.stop()
@@ -597,7 +593,7 @@ class PlanTable(DataTable):
 
 class WeekPlannerTable(DataTable):
     BINDINGS = [
-        Binding("g", "cursor_top", "First Day", show=False),
+    Binding("g", "cursor_top", "First Day", show=False),
         Binding("right", "next_template", "Next Template"),
         Binding("left", "previous_template", "Previous Template"),
         Binding("delete", "clear", "Clear Day"),
@@ -605,7 +601,7 @@ class WeekPlannerTable(DataTable):
         Binding("l", "next_template", "Next Template", show=False),
         Binding("j", "cursor_down", "Next Day", show=False),
         Binding("k", "cursor_up", "Previous Day", show=False),
-        Binding("G", "cursor_bottom", "Last Day", show=False),
+    Binding("G", "cursor_bottom", "Last Day", show=False),
     ]
 
     def __init__(self, notifier: Callable[[dict[str, str], bool], None]) -> None:
@@ -724,6 +720,11 @@ class WeekPlannerTable(DataTable):
         return None
 
     def on_key(self, event: events.Key) -> None:  # type: ignore[override]
+        if event.key == "f":
+            event.stop()
+            if hasattr(self.app, "action_focus_tasks"):
+                self.app.action_focus_tasks()
+            return
         handler = getattr(super(), "on_key", None)
         if handler:
             handler(event)
@@ -747,9 +748,6 @@ class WeekPlannerTable(DataTable):
 
     def action_cursor_up(self) -> None:
         self._move_cursor(-1)
-
-    def action_cursor_top(self) -> None:
-        self.jump_top()
 
     def action_cursor_bottom(self) -> None:
         self.jump_bottom()
@@ -832,16 +830,19 @@ class MunazzimApp(App):
     BINDINGS = [
         Binding("q", "quit", "Quit"),
         Binding("r", "refresh", "Reload"),
+        Binding("n", "next_template", "Next Template"),
+        Binding("p", "previous_template", "Previous Template"),
+        Binding("t", "pick_template", "Choose Template"),
         Binding("w", "focus_week_planner", "Week Templates"),
-        Binding("e", "edit_plan", "Open Template"),
-        Binding("C", "sync_google_calendar_week", "Sync Calendar (Week)"),
-        Binding("Y", "force_sync_google_calendar_today", "Force Sync Calendar (Today)"),
-        # Resize layout: ctrl+h/l adjust vertical split (plan/side); ctrl+j/k adjust
-        # horizontal split (plan-table / week-table) inside the columns.
+        Binding("f", "focus_tasks", "Tasks"),
+    Binding("e", "edit_plan", "Open Template"),
+    Binding("C", "sync_google_calendar_week", "Sync Calendar (Week)"),
+    Binding("Y", "force_sync_google_calendar_today", "Force Sync Calendar (Today)"),
+        # Resize layout: ctrl+h/l adjust vertical split (plan/side).
         Binding("ctrl+h", "resize_left", "Decrease Plan Width"),
         Binding("ctrl+l", "resize_right", "Increase Plan Width"),
-        Binding("ctrl+j", "resize_up", "Decrease Plan Table Height"),
-        Binding("ctrl+k", "resize_down", "Increase Plan Table Height"),
+        Binding("ctrl+j", "next_day", "Next Day"),
+        Binding("ctrl+k", "previous_day", "Previous Day"),
     ]
 
     def __init__(self) -> None:
@@ -1106,22 +1107,19 @@ class MunazzimApp(App):
         self._apply_layout_ratios()
         self.refresh_plan()
 
-    def refresh_plan(self) -> None:
+    def refresh_plan(self, *, target_date: date | None = None) -> None:
         if self._is_refreshing:
             return
         self._is_refreshing = True
         try:
-            preserved_cursor = None
-            try:
-                if self.plan_table is not None and self.plan_table.cursor_row is not None:
-                    preserved_cursor = (self.plan_table.cursor_row, self.plan_table.cursor_column or 0)
-            except Exception:
-                preserved_cursor = None
             if self._config_errors and not self._config_errors_shown:
                 self._config_errors_shown = True
                 self._display_sync_errors("Config Error", self._config_errors)
             self.week_panel.commit_if_dirty()
-            self.current_date = date.today()
+            if target_date is None:
+                self.current_date = date.today()
+            else:
+                self.current_date = target_date
             current_day_key = self._weekday_key(self.current_date)
             if self._show_template_error_if_any():
                 self.week_panel.set_data(self.week_assignments, self.templates.template_names(), current_day_key)
@@ -1151,7 +1149,7 @@ class MunazzimApp(App):
                 )
                 using_fallback = True
             else:
-                if self.active_template_name not in names:
+                if target_date is not None or self.active_template_name not in names:
                     self.active_template_name = self._resolve_template_name(self.current_date, names)
                 template = self.templates.get(self.active_template_name)
             template = self.task_engine.annotate_template(template)
@@ -1402,31 +1400,9 @@ class MunazzimApp(App):
             # (tests often stub that method).
             if self.plan_table is not None:
                 self._highlight_current_event(plan)
-                # Restore previous cursor position when user explicitly navigated
-                # or when task view is active to avoid jumping to the top.
-                try:
-                    import time as _time
-
-                    if preserved_cursor is not None and self.plan_table.row_count:
-                        row, col = preserved_cursor
-                        row = max(0, min(row, self.plan_table.row_count - 1))
-                        recent_nav = (
-                            self._last_user_navigation is not None
-                            and _time.time() - self._last_user_navigation < self._auto_highlight_suppress_secs
-                        )
-                        if self._todo_view_active or recent_nav:
-                            self.plan_table.cursor_coordinate = (row, col)
-                except Exception:
-                    pass
             self.status_line.show(self._make_status_context())
             # Send todos to the week planner's Todo box rather than replacing the plan
             self.week_panel.set_todos(todos)
-            # Maintain focus on the todo list view when it's active.
-            if self._todo_view_active:
-                try:
-                    self._show_task_view()
-                except Exception:
-                    pass
             if overrides_found and self.status_line:
                 try:
                     self.status_line.update(f"Prayer overrides applied: {', '.join(overrides_found)}")
@@ -1436,8 +1412,25 @@ class MunazzimApp(App):
             # return focus back to the plan.
             if self._todo_view_active and (self.week_panel.todo_table is None or not self.week_panel.todo_table.has_tasks):
                 self._show_plan_view()
+            self._update_plan_header()
         finally:
             self._is_refreshing = False
+
+    def action_next_day(self) -> None:
+        self.current_date = self.current_date + timedelta(days=1)
+        self.active_template_name = self._resolve_template_name(
+            self.current_date,
+            self.templates.template_names(),
+        )
+        self.refresh_plan(target_date=self.current_date)
+
+    def action_previous_day(self) -> None:
+        self.current_date = self.current_date - timedelta(days=1)
+        self.active_template_name = self._resolve_template_name(
+            self.current_date,
+            self.templates.template_names(),
+        )
+        self.refresh_plan(target_date=self.current_date)
 
     def action_refresh(self) -> None:
         self.config = self.config_manager.load()
@@ -1547,8 +1540,90 @@ class MunazzimApp(App):
             self.plan_table.add_row("--", "--", hint, "--")
         self.status_line.update(hint)
 
+    def action_next_template(self) -> None:
+        self._cycle_template(1)
+
+    def action_previous_template(self) -> None:
+        self._cycle_template(-1)
+
+    def action_pick_template(self) -> None:
+        names = self.templates.template_names()
+        if not names:
+            return
+        choices = [
+            TemplateChoice(name=name, description=self.templates.get(name).description)
+            for name in names
+        ]
+        self.push_screen(TemplatePickerScreen(choices), self._on_template_selected)
+
     def action_focus_week_planner(self) -> None:
         self.week_panel.focus_table()
+
+    def action_focus_tasks(self) -> None:
+        # Toggle focus between today's plan and the Week Todo box
+        if self._todo_view_active:
+            self._show_plan_view()
+            self._todo_view_active = False
+            return
+        # If the week panel has a todo table and it has items, prefer
+        # a Google Tasks list that matches the currently selected plan
+        # event; otherwise fall back to the currently configured list
+        # or the first available list.
+        if self.week_panel.has_todos():
+            # Attempt to choose a list that matches the current event
+            try:
+                if self.google_tasks_service and getattr(self, "plan_table", None) and getattr(self.plan_table, "cursor_row", None) is not None:
+                    # Fetch the scheduled event under the cursor to infer the name
+                    try:
+                        scheduled = list(getattr(self.plan_table, "_row_metadata", []))[self.plan_table.cursor_row]
+                    except Exception:
+                        scheduled = None
+                    event_name = None
+                    try:
+                        if scheduled and hasattr(scheduled, "event"):
+                            event_name = scheduled.event.name if hasattr(scheduled.event, "name") else None
+                    except Exception:
+                        event_name = None
+                    # If we have an event name, look for a matching task list
+                    if event_name:
+                        try:
+                            lists = self.google_tasks_service.list_tasklists()
+                            match = next((l for l in lists if l.title == event_name), None)
+                            if match:
+                                self.selected_google_tasklist = match.id
+                                self.config.planner.google_task_list = match.id
+                                try:
+                                    self.config_manager.save(self.config)
+                                except Exception:
+                                    pass
+                                # Lock the selection to avoid the next refresh changing it
+                                self._selected_list_locked = match.id
+                        except Exception:
+                            # Network or API failure: ignore and fall back
+                            pass
+            except Exception:
+                # Be defensive — falling back to existing list if anything goes wrong
+                pass
+            # If there's no selected list yet, default to the first list (non-destructive)
+            try:
+                if not self.selected_google_tasklist and self.google_tasks_service:
+                    lists = self.google_tasks_service.list_tasklists()
+                    if lists:
+                        self.selected_google_tasklist = lists[0].id
+                        self.config.planner.google_task_list = lists[0].id
+                        try:
+                            self.config_manager.save(self.config)
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+            self._todo_view_active = True
+            self.week_panel.focus_todos()
+            return
+        self.bell()
+
+    def action_focus_plan(self) -> None:
+        self._show_plan_view()
 
     def on_plan_cursor_changed(self, cursor_row: int | None) -> None:
         """Called by the PlanTable when its cursor/selection changes.
@@ -1580,7 +1655,102 @@ class MunazzimApp(App):
                     event_name = scheduled.event.name if hasattr(scheduled.event, "name") else None
             except Exception:
                 event_name = None
-            return
+            # If we have a matching Google Tasks list for this event, select it
+            # If user moved recently, avoid doing heavy refreshes here.
+            import time
+            recently_navigated = (
+                self._last_user_navigation is not None
+                and time.time() - self._last_user_navigation < self._auto_highlight_suppress_secs
+            )
+            if event_name and self.google_tasks_service:
+                cached = self._get_cached_tasks_for_event(event_name)
+                if cached is not None:
+                    self.week_panel.set_todos(cached)
+                    return
+
+            if event_name and self.google_tasks_service and not getattr(self, "_selected_list_locked", None):
+                try:
+                    lists = self._get_cached_tasklists() or self.google_tasks_service.list_tasklists()
+                    match = next((l for l in lists if l.title == event_name), None)
+                    if match:
+                        self.selected_google_tasklist = match.id
+                        self.config.planner.google_task_list = match.id
+                        try:
+                            self.config_manager.save(self.config)
+                        except Exception:
+                            pass
+                        # Fetch tasks for this list and show them in the todo box
+                        try:
+                            # Use cached tasks where possible, don't block UI.
+                            g_tasks = self._get_cached_tasks(match.id)
+                            if g_tasks is None:
+                                # schedule refresh; allow sync in headless contexts
+                                self._schedule_tasklist_refresh(match.id, None, allow_sync=True)
+                                return
+                            if not g_tasks:
+                                self.week_panel.set_todos([])
+                                return
+                            # otherwise we have immediate results
+                            # Build a map of event name -> scheduled start time
+                            event_start_map: dict[str, datetime] = {}
+                            for s in getattr(self.plan_table, "_row_metadata", []) or []:
+                                try:
+                                    key = s.event.name if hasattr(s, "event") and hasattr(s.event, "name") else None
+                                except Exception:
+                                    key = None
+                                if key and key not in event_start_map:
+                                    event_start_map[key] = s.start
+                            g_todos: list[TodoDisplay] = []
+                            from zoneinfo import ZoneInfo
+                            from datetime import timezone as _tz, datetime as _dt
+
+                            for t in g_tasks:
+                                due_val = t.due
+                                if event_name in event_start_map:
+                                    tzname = self.config.location.timezone if getattr(self.config, 'location', None) and getattr(self.config.location, 'timezone', None) else None
+                                    try:
+                                        tz = ZoneInfo(tzname) if tzname else _dt.now().astimezone().tzinfo
+                                    except Exception:
+                                        tz = _dt.now().astimezone().tzinfo
+                                    start_dt = event_start_map[event_name]
+                                    if start_dt.tzinfo is None:
+                                        start_aware = start_dt.replace(tzinfo=tz)
+                                    else:
+                                        start_aware = start_dt
+                                    due_val = start_aware.astimezone(_tz.utc).isoformat().replace("+00:00", "Z")
+                                g_todos.append(
+                                    TodoDisplay(
+                                        task=t.title,
+                                        event=event_name,
+                                        note=t.notes,
+                                        due=due_val,
+                                        task_id=t.id,
+                                        assignment_id=None,
+                                        total=None,
+                                        ordinal=None,
+                                        checked=(t.status == "completed"),
+                                        toggleable=True,
+                                        last_completed=None,
+                                        provider="google",
+                                    )
+                                )
+                            self.week_panel.set_todos(g_todos)
+                            return
+                        except Exception:
+                            # If any network error occurs, fall through to a full
+                            # refresh so the user sees the best-effort view.
+                            pass
+                    else:
+                        # No matching list for this event: show empty view.
+                        self.week_panel.set_todos([])
+                        return
+                except Exception:
+                    # Ignore API errors and fallback to refresh
+                    pass
+            # Default behavior: refresh the plan (which will update the todo box)
+            if recently_navigated:
+                return
+            self.refresh_plan()
         except Exception:
             # Never raise from cursor movement
             return
@@ -1611,9 +1781,11 @@ class MunazzimApp(App):
         self.refresh_plan()
 
     def action_open_event_tasks(self) -> None:
-        """Open the Google Tasks list for the selected event in the plan.
+        """Open the per-event tasks file for the selected event in the plan.
 
-        If the list doesn't exist yet, create it, then focus the todo view.
+        The file is located at ~/.config/munazzim/tasks/<EventName>. The
+        $EDITOR is used to open/edit the file. Once the editor exits we
+        refresh tasks and the plan.
         """
         if not self.plan_table or self.plan_table.cursor_row is None:
             self.bell()
@@ -1634,7 +1806,8 @@ class MunazzimApp(App):
         if not event_name:
             self.bell()
             return
-        # Directly manage cloud tasks rather than editing a local file.
+        # New behavior: directly manage cloud tasks rather than editing a
+        # local file middleman. Ensure the Google Tasks service is enabled.
         if not self.google_tasks_service:
             self._display_error("Google Tasks", "Google Tasks service not configured or missing dependencies")
             return
@@ -1662,78 +1835,17 @@ class MunazzimApp(App):
             self.config_manager.save(self.config)
         except Exception:
             pass
-        # Treat Enter as explicit navigation to avoid auto-highlight resetting
-        # the plan cursor during the subsequent refresh.
+        # Ensure the list contains items from the template-derived definitions
+        # and use the synchronous helper to attach due times based on the
+        # scheduled start if present.
         try:
-            self.on_user_navigated()
-        except Exception:
-            pass
-        # Load tasks for the selected list and show them in the todo view.
-        try:
-            g_tasks = self.google_tasks_service.list_tasks(list_id)
-            self._set_cached_tasks(list_id, g_tasks)
+            self._sync_event_tasks_to_google(event_name, scheduled.start)
         except Exception as exc:
             self._display_error("Google Tasks", str(exc))
-            g_tasks = []
-        # Build todo items for display, preferring the event's start as due
-        event_start = scheduled.start if hasattr(scheduled, "start") else None
-        g_todos: list[TodoDisplay] = []
-        try:
-            from zoneinfo import ZoneInfo
-            from datetime import timezone as _tz, datetime as _dt
-
-            tzname = self.config.location.timezone if getattr(self.config, "location", None) and getattr(self.config.location, "timezone", None) else None
-            try:
-                tz = ZoneInfo(tzname) if tzname else _dt.now().astimezone().tzinfo
-            except Exception:
-                tz = _dt.now().astimezone().tzinfo
-            for t in g_tasks:
-                due_val = t.due
-                if event_start:
-                    start_dt = event_start
-                    if start_dt.tzinfo is None:
-                        start_aware = start_dt.replace(tzinfo=tz)
-                    else:
-                        start_aware = start_dt
-                    due_val = start_aware.astimezone(_tz.utc).isoformat().replace("+00:00", "Z")
-                g_todos.append(
-                    TodoDisplay(
-                        task=t.title,
-                        event=event_name,
-                        note=t.notes,
-                        due=due_val,
-                        task_id=t.id,
-                        assignment_id=None,
-                        total=None,
-                        ordinal=None,
-                        checked=(t.status == "completed"),
-                        toggleable=True,
-                        last_completed=None,
-                        provider="google",
-                    )
-                )
-        except Exception:
-            g_todos = [
-                TodoDisplay(
-                    task=t.title,
-                    event=event_name,
-                    note=t.notes,
-                    due=t.due,
-                    task_id=t.id,
-                    assignment_id=None,
-                    total=None,
-                    ordinal=None,
-                    checked=(t.status == "completed"),
-                    toggleable=True,
-                    last_completed=None,
-                    provider="google",
-                )
-                for t in g_tasks
-            ]
+        # Focus todo view for this list and refresh
         self._selected_list_locked = list_id
-        self._todo_view_active = True
-        self.week_panel.set_todos(g_todos)
-        self.week_panel.focus_todos()
+        self._show_task_view()
+        self.refresh_plan()
 
     def action_new_template(self) -> None:
         try:
@@ -2005,8 +2117,7 @@ class MunazzimApp(App):
         if self.plan_table:
             self.plan_table.visible = True
             self.plan_table.focus()
-        if self.plan_header:
-            self.plan_header.update("Today's Plan")
+        self._update_plan_header()
 
     def _show_task_view(self) -> None:
         self._todo_view_active = True
@@ -2014,8 +2125,17 @@ class MunazzimApp(App):
             self.plan_table.visible = True
         if self.week_panel.todo_table:
             self.week_panel.focus_todos()
-        if self.plan_header:
-            self.plan_header.update("Today's Tasks")
+        self._update_plan_header()
+
+    def _update_plan_header(self) -> None:
+        if not self.plan_header:
+            return
+        today = date.today()
+        if self._todo_view_active:
+            prefix = "Today's Tasks" if self.current_date == today else f"Tasks: {self.current_date.isoformat()}"
+        else:
+            prefix = "Today's Plan" if self.current_date == today else f"Plan: {self.current_date.isoformat()}"
+        self.plan_header.update(prefix)
 
     def _weekday_key(self, day: date) -> str:
         return day.strftime("%A").lower()
@@ -2030,6 +2150,28 @@ class MunazzimApp(App):
         if self.config.planner.default_template in available:
             return self.config.planner.default_template
         return available[0]
+
+    def _set_active_template(self, name: str, *, persist: bool) -> None:
+        if name not in self.templates.template_names():
+            return
+        self.active_template_name = name
+        if persist:
+            day_key = self._weekday_key(self.current_date)
+            self.week_assignments[day_key] = name
+            self.config.planner.week_templates = dict(self.week_assignments)
+            self.config_manager.save(self.config)
+        self.refresh_plan()
+
+    def _cycle_template(self, delta: int) -> None:
+        names = self.templates.template_names()
+        if not names or self.active_template_name not in names:
+            return
+        idx = names.index(self.active_template_name)
+        self._set_active_template(names[(idx + delta) % len(names)], persist=True)
+
+    def _on_template_selected(self, selection: str | None) -> None:
+        if selection:
+            self._set_active_template(selection, persist=True)
 
     def _on_week_assignments_changed(self, assignments: dict[str, str], persist: bool) -> None:
         self.week_assignments = dict(assignments)

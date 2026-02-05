@@ -8,6 +8,7 @@ from pathlib import Path
 from threading import Lock
 from typing import Protocol
 from zoneinfo import ZoneInfo
+import re
 
 import httpx  # type: ignore[import]
 from pyIslam.praytimes import LIST_FAJR_ISHA_METHODS, Prayer as PyIslamPrayer, PrayerConf  # type: ignore[import]
@@ -17,6 +18,7 @@ from .geolocation import GeoLocation, GeoLocator
 
 ALADHAN_API = "https://api.aladhan.com/v1/timings/{day}"
 VAKIT_API = "https://vakit.vercel.app/api/timesForGPS"
+EZANVAKTI_API = "https://ezanvakti.imsakiyem.com/api"
 
 ALADHAN_METHODS = {
     "Shia Ithna-Ansari": 0,
@@ -157,6 +159,36 @@ class PyIslamProvider:
         )
 
 
+class EzanVaktiProvider:
+    """Diyanet-backed prayer times via EzanVakti İmsakiyem API."""
+
+    name = "ezanvakti"
+
+    def fetch(self, day: date, location: GeoLocation, settings: PrayerSettings) -> PrayerSchedule:
+        district_id = _resolve_ezanvakti_district_id(location)
+        if not district_id:
+            raise ValueError("EzanVakti requires district_id or (state + district) in location settings")
+        url = f"{EZANVAKTI_API}/prayer-times/{district_id}/daily"
+        response = httpx.get(url, timeout=10.0)
+        response.raise_for_status()
+        payload = response.json()
+        data = payload.get("data") or []
+        if not data:
+            raise ValueError("EzanVakti returned empty data")
+        entry = _select_ezanvakti_day(data, day)
+        times = entry.get("times", {})
+        return PrayerSchedule.from_dict(
+            {
+                "fajr": _sanitize_time(times.get("imsak", "")),
+                "sunrise": _sanitize_time(times.get("gunes", "")),
+                "dhuhr": _sanitize_time(times.get("ogle", "")),
+                "asr": _sanitize_time(times.get("ikindi", "")),
+                "maghrib": _sanitize_time(times.get("aksam", "")),
+                "isha": _sanitize_time(times.get("yatsi", "")),
+            }
+        )
+
+
 class PrayerCache:
     def __init__(self, path: Path, max_days: int) -> None:
         self.path = path
@@ -279,6 +311,7 @@ class PrayerService:
             "pyislam": pyislam_provider,
             "aladhan": AladhanProvider(),
             "vakit": VakitProvider(),
+            "ezanvakti": EzanVaktiProvider(),
         }
 
     def get_schedule(self, day: date) -> PrayerSchedule:
@@ -362,19 +395,32 @@ class PrayerService:
         missing_coordinates = (
             loc.latitude is None or loc.longitude is None or not loc.timezone
         )
-        needs_detection = loc.use_geolocation or missing_coordinates
+        needs_detection = loc.use_geolocation and missing_coordinates
         if needs_detection:
             resolved = self.geolocator.detect()
             if resolved:
-                self._remember_location(resolved)
-                self._detected_location = resolved
-                return resolved
+                merged = GeoLocation(
+                    latitude=loc.latitude if loc.latitude is not None else resolved.latitude,
+                    longitude=loc.longitude if loc.longitude is not None else resolved.longitude,
+                    city=loc.city or resolved.city,
+                    country=loc.country or resolved.country,
+                    state=loc.state or resolved.state,
+                    district=loc.district or resolved.district,
+                    district_id=loc.district_id or resolved.district_id,
+                    timezone=loc.timezone or resolved.timezone,
+                )
+                self._remember_location(merged)
+                self._detected_location = merged
+                return merged
         if loc.latitude is not None and loc.longitude is not None and loc.timezone:
             return GeoLocation(
                 latitude=loc.latitude,
                 longitude=loc.longitude,
                 city=loc.city,
                 country=loc.country,
+                state=loc.state,
+                district=loc.district,
+                district_id=loc.district_id,
                 timezone=loc.timezone,
             )
         fallback_timezone = loc.timezone or datetime.now().astimezone().tzinfo.tzname(None) or "UTC"
@@ -383,6 +429,9 @@ class PrayerService:
             longitude=loc.longitude or 0.0,
             city=loc.city or "",
             country=loc.country or "",
+            state=loc.state or "",
+            district=loc.district or "",
+            district_id=loc.district_id,
             timezone=fallback_timezone,
         )
 
@@ -396,10 +445,18 @@ class PrayerService:
             loc.city = geo.city
         if geo.country:
             loc.country = geo.country
+        if geo.state:
+            loc.state = geo.state
+        if geo.district:
+            loc.district = geo.district
+        if geo.district_id:
+            loc.district_id = geo.district_id
         if geo.timezone:
             loc.timezone = geo.timezone
         if not loc.use_geolocation:
             loc.use_geolocation = True
+        if loc.persist_geolocation and self.config_manager:
+            self.config_manager.save(self.config)
 
     def _apply_overrides(self, schedule: PrayerSchedule) -> PrayerSchedule:
         overrides = getattr(self.config, "prayer_overrides", None)
@@ -466,6 +523,70 @@ def _sanitize_time(value: str) -> str:
     if "-" in value and value.count(":") == 1 and value.split("-", 1)[1].isdigit():
         value = value.split("-", 1)[0]
     return value
+
+
+def _normalize_ezanvakti_name(value: str) -> str:
+    cleaned = value.strip().casefold()
+    return re.sub(r"[^\w]+", "", cleaned)
+
+
+def _ezanvakti_get(path: str, params: dict[str, object] | None = None) -> list[dict] | dict:
+    response = httpx.get(f"{EZANVAKTI_API}{path}", params=params, timeout=10.0)
+    response.raise_for_status()
+    payload = response.json()
+    if isinstance(payload, dict) and payload.get("success") is False:
+        raise ValueError(payload.get("message") or "EzanVakti request failed")
+    return payload.get("data", payload)
+
+
+def _ezanvakti_country_id(country_name: str | None) -> str | None:
+    if not country_name:
+        return None
+    countries = _ezanvakti_get("/locations/countries")
+    if not isinstance(countries, list):
+        return None
+    needle = _normalize_ezanvakti_name(country_name)
+    for entry in countries:
+        name = _normalize_ezanvakti_name(str(entry.get("name", "")))
+        name_en = _normalize_ezanvakti_name(str(entry.get("name_en", "")))
+        if needle == name or needle == name_en or needle in name or needle in name_en:
+            return str(entry.get("_id"))
+    return None
+
+
+def _resolve_ezanvakti_district_id(location: GeoLocation) -> str | None:
+    if getattr(location, "district_id", None):
+        return location.district_id
+    query = (location.district or location.city or "").strip()
+    if not query:
+        return None
+    results = _ezanvakti_get("/locations/search/districts", params={"q": query})
+    if not isinstance(results, list):
+        return None
+    country_id = _ezanvakti_country_id(location.country)
+    if country_id:
+        results = [item for item in results if str(item.get("country_id")) == str(country_id)]
+    if not results:
+        return None
+    needle = _normalize_ezanvakti_name(query)
+    for item in results:
+        if needle in (
+            _normalize_ezanvakti_name(str(item.get("name", ""))),
+            _normalize_ezanvakti_name(str(item.get("name_en", ""))),
+        ):
+            return str(item.get("_id"))
+    return str(results[0].get("_id"))
+
+
+def _select_ezanvakti_day(entries: list[dict], target_day: date) -> dict:
+    if not entries:
+        return {}
+    target = target_day.isoformat()
+    for entry in entries:
+        raw = str(entry.get("date", ""))
+        if raw[:10] == target:
+            return entry
+    return entries[0]
 
 
 def _resolve_timezone(tz_name: str | None) -> timezone:

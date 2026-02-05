@@ -110,3 +110,21 @@ def test_qalib_parses_all_prayer_tokens() -> None:
         assert isinstance(f.events[0], PrayerEvent)
         assert f.events[0].prayer.lower() == p
         assert f.events[0].duration == timedelta(minutes=15)
+
+
+def test_qalib_parses_prayer_headers() -> None:
+    template = parse_qalib(
+        """
+# prayer_durations.fajr: 0:25
+# prayer_durations.maghrib: 0:10
+# prayer_overrides.asr: dhuhr + 5
+# prayer_overrides.isha: 19:50
+05:00
+.30 Warmup
+""",
+        default_name="PrayerHeaders",
+    )
+    assert template.prayer_durations["fajr"] == "0:25"
+    assert template.prayer_durations["maghrib"] == "0:10"
+    assert template.prayer_overrides["asr"] == "dhuhr + 5"
+    assert template.prayer_overrides["isha"] == "19:50"
