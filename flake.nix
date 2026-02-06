@@ -42,7 +42,7 @@
                 return 0
               fi
 
-              for term in x-terminal-emulator gnome-terminal konsole alacritty kitty foot wezterm xterm; do
+              for term in ghostty x-terminal-emulator gnome-terminal konsole alacritty kitty foot wezterm xterm; do
                 if command -v "''${term}" >/dev/null 2>&1; then
                   echo "''${term}"
                   return 0
